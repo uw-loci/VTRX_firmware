@@ -14,7 +14,7 @@
 const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // Initialize LCD pins
 
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7); // Initialize LCD display
-PressureTransducer sensor(DEFAULT_ADDR, Serial2); // Initialize the pressure transducer with Serial2 over RS485
+PressureTransducer sensor(PRESSURE_GAUGE_DEFAULT_ADDR, Serial2); // Initialize the pressure transducer with Serial2 over RS485
 
 void setup() {
     lcd.begin(16, 2); // Set up the LCD's number of columns and rows
@@ -51,11 +51,11 @@ void loop() {
 }
 
 void performSafetyChecks() {
-
+    // Check status of panel switches
     checkPumpsPowerStatus();
     checkTurboRotorPowerStatus();
     checkTurboVentOpen();
-    checkTurboRotorOn();
+    checkPressureGaugePowerStatus();
     checkTurboGateValveOpen();
     checkTurboGateValveClosed();
     checkArgonGateValveOpen();
@@ -99,13 +99,41 @@ void checkTurboRotorPowerStatus() {
 }
 
 void checkTurboVentOpen() {
-   if (digitalRead(turbo_rotorPin) == LOW) {
-        updateLCD("Pump Power Off!");
+   if (digitalRead(TURBO_VENT_OPEN_PIN) == HIGH) {
+        updateLCD("Turbo Vent Open");
+    } else if (digitalRead(TURBO_VENT_OPEN_PIN) == LOW) {
+        updateLCD("Turbo Vent Close");
+    } else {
+        updateLCD("Pin D39 Err");
     }
 }
 
-void checkPressureGauge() {
-    if (digitalRead(turbo_rotorPin) == LOW) {
-        updateLCD("Pump Power Off!");
+void checkPressureGaugePowerStatus() {
+    if (digitalRead(PRESSURE_GAUGE_POWER_ON_PIN) == HIGH) {
+        updateLCD("972b Power On");
+    } else if (digitalRead(PRESSURE_GAUGE_POWER_ON_PIN) == LOW) {
+        updateLCD("972b Power OFF");
+    } else {
+        updateLCD("Pin D38 Err");
+    }
+}
+
+void checkTurboGateValveOpen() {
+    if (digitalRead(TURBO_GATE_VALVE_OPEN_PIN) == HIGH) {
+        updateLCD("Turbo Gate Open");
+    } else if (digitalRead(TURBO_GATE_VALVE_OPEN_PIN) == LOW) {
+        updateLCD("Turbo Gate Close");
+    } else {
+        updateLCD("Pin D38 Err");
+    }
+}
+
+void checkTurboGateValveClosed() {
+    if (digitalRead(TURBO_GATE_VALVE_CLOSED_PIN) == HIGH) {
+        updateLCD("TurboGate Closed");
+    } else if (digitalRead(TURBO_GATE_VALVE_CLOSED_PIN) == LOW) {
+        updateLCD("Turbo Gate Close");
+    } else {
+        updateLCD("Pin D38 Err");
     }
 }
