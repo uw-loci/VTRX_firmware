@@ -2,10 +2,6 @@
 #include "972b.h"  // Include the pressure transducer library
 
 #define PRESSURE_GAUGE_DEFAULT_ADDR    "253"
-#define TURBO_GATE_OPEN_LED_PIN         13
-#define TURBO_GATE_CLOSED_LED_PIN       14
-#define ARGON_GATE_VALVE_OPEN_LED_PIN   11
-#define ARGON_GATE_VALVE_CLOSED_LED_PIN 10
 #define PUMPS_POWER_ON_PIN              41
 #define TURBO_ROTOR_ON_PIN              40
 #define TURBO_VENT_OPEN_PIN             39
