@@ -10,6 +10,10 @@
 #define TURBO_GATE_VALVE_CLOSED_PIN     33
 #define ARGON_GATE_VALVE_CLOSED_PIN     32
 #define ARGON_GATE_VALVE_OPEN_PIN       31
+#define TURBO_GATE_OPEN_LED_PIN         13
+#define TURBO_GATE_CLOSED_LED_PIN       14
+#define ARGON_GATE_VALVE_OPEN_LED_PIN   11
+#define ARGON_GATE_VALVE_CLOSED_LED_PIN 10
 
 const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // Initialize LCD pins
 
@@ -32,11 +36,12 @@ void setup() {
     Serial.begin(9600); // Initialize the serial for programming
     Serial1.begin(9600); // Initialize the serial to LabVIEW
     Serial2.begin(9600); // Initialize the serial to Pressure gauge (RS485)
+
+    startupMsg();
 }
 
 void loop() {
 
-    startupMsg();
     performSafetyChecks();
 
     // Check if LabVIEW has requested data
@@ -118,22 +123,17 @@ void checkPressureGaugePowerStatus() {
     }
 }
 
-void checkTurboGateValveOpen() {
-    if (digitalRead(TURBO_GATE_VALVE_OPEN_PIN) == HIGH) {
-        updateLCD("Turbo Gate Open");
-    } else if (digitalRead(TURBO_GATE_VALVE_OPEN_PIN) == LOW) {
-        updateLCD("Turbo Gate Close");
-    } else {
-        updateLCD("Pin D38 Err");
-    }
-}
+void checkTurboGateValveStatus() {
+    bool isOpen = digitalRead(TURBO_GATE_VALVE_OPEN_PIN) == HIGH;
+    bool isClosed = digitalRead(TURBO_GATE_VALVE_CLOSED_PIN) == HIGH;
 
-void checkTurboGateValveClosed() {
-    if (digitalRead(TURBO_GATE_VALVE_CLOSED_PIN) == HIGH) {
+    if (isOpen && isClosed) { // Error state: Both signals are HIGH
+        updateLCD("Turbo Gate Err");
+    } else if (isOpen) {
+        updateLCD("Turbo Gate Open");
+    } else if (isClosed) {
         updateLCD("TurboGate Closed");
-    } else if (digitalRead(TURBO_GATE_VALVE_CLOSED_PIN) == LOW) {
-        updateLCD("Turbo Gate Close");
-    } else {
-        updateLCD("Pin D38 Err");
+    } else { // Neither open nor closed signals are HIGH
+        updateLCD("Turbo Gate Unknown");
     }
 }
