@@ -1,5 +1,6 @@
 #include <LiquidCrystal.h>  // Include LCD library
 #include "972b.h"  // Include the pressure transducer library
+#include <avr/wdt.h>
 
 #define PRESSURE_GAUGE_DEFAULT_ADDR    "253"
 #define PUMPS_POWER_ON_PIN              41
@@ -14,8 +15,30 @@
 #define TURBO_GATE_CLOSED_LED_PIN       14
 #define ARGON_GATE_VALVE_OPEN_LED_PIN   11
 #define ARGON_GATE_VALVE_CLOSED_LED_PIN 10
+const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // LCD pins
 
-const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // Initialize LCD pins
+enum LogLevel {
+    INFO,
+    WARN,
+    ERROR
+};
+
+enum ErrorCode {
+  SENSOR_FAILURE,
+  COMMUNICATION_TIMEOUT,
+  UNEXPECTED_PRESSURE_READING
+};
+
+void setupWatchdog(int interval) {
+  MCUSR = 0; // Clear reset flags
+  WDTCSR = bit(WDCE) | bit(WDE); // Set change enable
+  WDTCSR = bit(WDIE) | interval; // Set interrupt mode and interval
+}
+
+ISR(WDT_vect) {
+  logMessage(WARN, "Watchdog interrupt triggered");
+  // Reset watchdog
+}
 
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7); // Initialize LCD display
 PressureTransducer sensor(PRESSURE_GAUGE_DEFAULT_ADDR, Serial2); // Initialize the pressure transducer with Serial2 over RS485
@@ -55,16 +78,38 @@ void loop() {
     // Additional loop code and functionality as needed
 }
 
+void handleError(ErrorCode error) {
+  switch (error) {
+    case SENSOR_FAILURE:
+      logMessage(ERROR, "Sensor failure detected");
+      // Attempt to reset or reinitialize sensor
+      break;
+    case COMMUNICATION_TIMEOUT:
+      logMessage(WARN, "Communication timeout, retrying...");
+      // Retry communication
+      break;
+    case UNEXPECTED_PRESSURE_READING:
+      logMessage(ERROR, "Unexpected pressure reading");
+      // Transition to a safe state
+      break;
+  }
+}
+
+void logMessage(LogLevel level, String message) {
+    String logLevelStr;
+    switch (level) {
+        case INFO: logLevelStr = "INFO"; break;
+        case WARN: logLevelStr = "WARN"; break;
+        case ERROR: logLevelStr = "ERROR"; break;
+    }
+    Serial.print(millis());
+    Serial.print(" [");
+    Serial.print("] ");
+    Serial.println(message);
+}
+
 void performSafetyChecks() {
     // Check status of panel switches
-    checkPumpsPowerStatus();
-    checkTurboRotorPowerStatus();
-    checkTurboVentOpen();
-    checkPressureGaugePowerStatus();
-    checkTurboGateValveOpen();
-    checkTurboGateValveClosed();
-    checkArgonGateValveOpen();
-    checkArgonGateValveClosed();
 }
 
 void sendDataToLabVIEW() {
