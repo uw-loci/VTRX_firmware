@@ -106,10 +106,11 @@ void loop() {
         // Use this to test specific functionality
             log(INFO, "_____________DEBUG STATE______________");
         
+            // VTRX-BTEST-020: Test serial reading from pressure gauge using arduino at 1 atm
             vtrx_btest_040();
 
-            // VTRX-BTEST-040
-            // VTRX-BTEST-050
+            // VTRX-BTEST-040: Test pressure safety relays reading from pressure gauge at 1 atm
+            // VTRX-BTEST-050: Test serial reading from pressure monitor in Labview sub-VI from pressure gauge at 1 atm
 
     }
 
