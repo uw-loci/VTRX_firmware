@@ -1,6 +1,6 @@
 #include <LiquidCrystal.h>  // Include LCD library
 #include "972b.h"  // Include the pressure transducer library
-#include <avr/wdt.h>
+#include <avr/wdt.h> // Include Watchdog timer library
 
 #define PRESSURE_GAUGE_DEFAULT_ADDR    "253"
 #define PUMPS_POWER_ON_PIN              41
@@ -17,8 +17,21 @@
 #define ARGON_GATE_VALVE_CLOSED_LED_PIN 10
 const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // LCD pins
 
+enum SystemState {
+  INITIALIZATION,
+  IDLE,
+  DEBUG,
+  STANDARD_PUMP_DOWN,
+  ARGON_PUMP_DOWN,
+  VENTING,
+  POWER_LOSS,
+  PRESSURE_ERROR,
+  REMOTE_CONTROL,
+};
+
 enum LogLevel {
-    INFO,
+    INFO,           // Serial output
+    UI,             // LCD and Serial
     WARN,
     ERROR
 };
@@ -40,6 +53,7 @@ ISR(WDT_vect) {
   // Reset watchdog
 }
 
+SystemState currentState = INITIALIZATION;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7); // Initialize LCD display
 PressureTransducer sensor(PRESSURE_GAUGE_DEFAULT_ADDR, Serial2); // Initialize the pressure transducer with Serial2 over RS485
 
@@ -65,14 +79,29 @@ void setup() {
 
 void loop() {
 
-    performSafetyChecks();
+    switch (currentState)
+    {
+        case INITIALIZATION:
+        // Perform initialization
+            log(INFO, "__INITIALIZATION STATE__");
+            log(UI, "INIT")
 
-    // Check if LabVIEW has requested data
-    if (Serial1.available() > 0) {
-        String command = Serial1.readStringUntil('\n'); // Read the command from LabVIEW
-        if (command == "REQUEST_DATA") {
-            sendDataToLabVIEW();
-        }
+            PressureTransducer sensor(DEFAULT_ADDR, Serial2);
+
+            currentState = IDLE;
+            break;
+
+        case IDLE:
+        // Begin IDLE state
+            log(INFO, "_______IDLE STATE_______");
+
+        case STANDARD_PUMP_DOWN:
+        // TODO: handle standard pump down logic
+            log(INFO, "STANDARD_PUMP_DOWN STATE");
+
+        case DEBUG:
+        // Transition to the state based on some condition
+            log(INFO, "______DEBUG STATE_______");
     }
 
     // Additional loop code and functionality as needed
@@ -81,21 +110,21 @@ void loop() {
 void handleError(ErrorCode error) {
   switch (error) {
     case SENSOR_FAILURE:
-      logMessage(ERROR, "Sensor failure detected");
+      log(ERROR, "Sensor failure detected");
       // Attempt to reset or reinitialize sensor
       break;
     case COMMUNICATION_TIMEOUT:
-      logMessage(WARN, "Communication timeout, retrying...");
+      log(WARN, "Communication timeout, retrying...");
       // Retry communication
       break;
     case UNEXPECTED_PRESSURE_READING:
-      logMessage(ERROR, "Unexpected pressure reading");
+      log(ERROR, "Unexpected pressure reading");
       // Transition to a safe state
       break;
   }
 }
 
-void logMessage(LogLevel level, String message) {
+void log(LogLevel level, String message) {
     String logLevelStr;
     switch (level) {
         case INFO: logLevelStr = "INFO"; break;
