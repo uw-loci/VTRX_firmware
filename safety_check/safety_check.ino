@@ -55,7 +55,6 @@ ISR(WDT_vect) {
 
 SystemState currentState = INITIALIZATION;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7); // Initialize LCD display
-PressureTransducer sensor(PRESSURE_GAUGE_DEFAULT_ADDR, Serial2); // Initialize the pressure transducer with Serial2 over RS485
 
 void setup() {
     lcd.begin(16, 2); // Set up the LCD's number of columns and rows
@@ -79,6 +78,8 @@ void setup() {
 
 void loop() {
 
+
+    // This switch statement provides a state machine 
     switch (currentState)
     {
         case INITIALIZATION:
@@ -86,25 +87,34 @@ void loop() {
             log(INFO, "__INITIALIZATION STATE__");
             log(UI, "INIT")
 
-            PressureTransducer sensor(DEFAULT_ADDR, Serial2);
+            // Initialize the Pressure sensor
+            PressureTransducer _sensor(PRESSURE_GAUGE_DEFAULT_ADDR, Serial2);
+            log(UI, "Init 972b");
 
-            currentState = IDLE;
+            currentState = DEBUG;
             break;
 
         case IDLE:
         // Begin IDLE state
-            log(INFO, "_______IDLE STATE_______");
+            log(INFO, "______________IDLE STATE______________");
 
         case STANDARD_PUMP_DOWN:
         // TODO: handle standard pump down logic
-            log(INFO, "STANDARD_PUMP_DOWN STATE");
+            log(INFO, "_______STANDARD_PUMP_DOWN STATE_______");
 
         case DEBUG:
-        // Transition to the state based on some condition
-            log(INFO, "______DEBUG STATE_______");
+        // Use this to test specific functionality
+            log(INFO, "_____________DEBUG STATE______________");
+        
+            vtrx_btest_040();
+
+            // VTRX-BTEST-040
+            // VTRX-BTEST-050
+
     }
 
     // Additional loop code and functionality as needed
+    currentState = INITIALIZATION;
 }
 
 void handleError(ErrorCode error) {
@@ -131,8 +141,8 @@ void log(LogLevel level, String message) {
         case WARN: logLevelStr = "WARN"; break;
         case ERROR: logLevelStr = "ERROR"; break;
     }
-    Serial.print(millis());
     Serial.print(" [");
+    Serial.print(millis());
     Serial.print("] ");
     Serial.println(message);
 }
@@ -210,4 +220,9 @@ void checkTurboGateValveStatus() {
     } else { // Neither open nor closed signals are HIGH
         updateLCD("Turbo Gate Unknown");
     }
+}
+
+void vtrx_btest_040() {
+    log(UI, "BTEST-040");
+
 }
