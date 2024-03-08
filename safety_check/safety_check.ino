@@ -135,6 +135,8 @@ void handleError(ErrorCode error) {
   }
 }
 
+
+// TODO: figure out logging!
 void log(LogLevel level, String message) {
     String logLevelStr;
     switch (level) {
@@ -168,59 +170,15 @@ void startupMsg() {
     updateLCD("startup check.."); // transition msg
 }
 
-void checkPumpsPowerStatus() {
-    if (digitalRead(PUMPS_POWER_ON_PIN) == HIGH) {
-        updateLCD("Pumps Power ON");
-    } else if (digitalRead(PUMPS_POWER_ON_PIN == LOW)){
-        updateLCD("Pumps Power OFF")
-    } else {
-        updateLCD("Pin D41 Err");
-    }
+void checkDeviceStatus(int pin, const String& onMessage, const String& offMessage) {
+    int status = digitalRead(pin);
+    String message = (status == HIGH) ? onMessage : offMessage;
+    updateLCD(message);
 }
 
-void checkTurboRotorPowerStatus() {
-    if (digitalRead(TURBO_ROTOR_ON_PIN) == HIGH) {
-        updateLCD("Turbo Power ON");
-    } else if (digitalRead(TURBO_ROTOR_ON_PIN) == LOW) {
-        updateLCD("Turbo Power OFF");
-    } else {
-        updateLCD("Pin D40 Err");
-    }
-}
+void vtrx_btest_020() {
+    log(UI, "BTEST-020");
 
-void checkTurboVentOpen() {
-   if (digitalRead(TURBO_VENT_OPEN_PIN) == HIGH) {
-        updateLCD("Turbo Vent Open");
-    } else if (digitalRead(TURBO_VENT_OPEN_PIN) == LOW) {
-        updateLCD("Turbo Vent Close");
-    } else {
-        updateLCD("Pin D39 Err");
-    }
-}
-
-void checkPressureGaugePowerStatus() {
-    if (digitalRead(PRESSURE_GAUGE_POWER_ON_PIN) == HIGH) {
-        updateLCD("972b Power On");
-    } else if (digitalRead(PRESSURE_GAUGE_POWER_ON_PIN) == LOW) {
-        updateLCD("972b Power OFF");
-    } else {
-        updateLCD("Pin D38 Err");
-    }
-}
-
-void checkTurboGateValveStatus() {
-    bool isOpen = digitalRead(TURBO_GATE_VALVE_OPEN_PIN) == HIGH;
-    bool isClosed = digitalRead(TURBO_GATE_VALVE_CLOSED_PIN) == HIGH;
-
-    if (isOpen && isClosed) { // Error state: Both signals are HIGH
-        updateLCD("Turbo Gate Err");
-    } else if (isOpen) {
-        updateLCD("Turbo Gate Open");
-    } else if (isClosed) {
-        updateLCD("TurboGate Closed");
-    } else { // Neither open nor closed signals are HIGH
-        updateLCD("Turbo Gate Unknown");
-    }
 }
 
 void vtrx_btest_040() {
