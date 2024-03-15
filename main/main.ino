@@ -46,6 +46,8 @@ enum ErrorCode {
 
 SystemState currentState = INITIALIZATION;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7); // Initialize LCD display
+PressureTransducer sensor(PRESSURE_GAUGE_DEFAULT_ADDR, Serial2); // Initialize the Pressure sensor
+log(UI, "Init 972b");
 
 void setup() {
     lcd.begin(16, 2); // Set up the LCD's number of columns and rows
@@ -81,11 +83,7 @@ void loop() {
         case INITIALIZATION:
         // Perform initialization
             log(INFO, "__INITIALIZATION STATE__");
-            log(UI, "INIT")
-
-            // Initialize the Pressure sensor
-            PressureTransducer _sensor(PRESSURE_GAUGE_DEFAULT_ADDR, Serial2);
-            log(UI, "Init 972b");
+            log(UI, "INIT");
 
             currentState = DEBUG;
             break;
@@ -176,7 +174,7 @@ void startupMsg() {
 }
 
 void displayPressureReading() {
-    String pressure = _sensor.readPressure();
+    String pressure = sensor.readPressure();
     log(UI, "Pressure: " + pressure + " mbar");
 }
 
@@ -199,7 +197,7 @@ void updateLEDStatus() {
 
 void selfChecks() {
     updateLEDStatus();
-    
+
 }
 
 void vtrx_btest_020() {
