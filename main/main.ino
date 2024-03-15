@@ -71,7 +71,6 @@ void setup() {
     Serial1.begin(9600); // Initialize the serial to LabVIEW
     Serial2.begin(9600); // Initialize the serial to Pressure gauge (RS485)
 
-    startupMsg();
 }
 
 void loop() {
@@ -84,7 +83,8 @@ void loop() {
         // Perform initialization
             log(INFO, "__INITIALIZATION STATE__");
             log(UI, "INIT");
-
+            startupMsg();
+            
             currentState = DEBUG;
             break;
 
