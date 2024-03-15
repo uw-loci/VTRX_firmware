@@ -121,8 +121,9 @@ void loop() {
 void handleError(ErrorCode error) {
   switch (error) {
     case SENSOR_FAILURE:
-      log(ERROR, "Sensor failure detected");
+      log(ERROR, "Sensor failure detected. Attempting to reinitialize");
       // Attempt to reset or reinitialize sensor
+
       break;
     case COMMUNICATION_TIMEOUT:
       log(WARN, "Communication timeout, retrying...");
@@ -136,13 +137,11 @@ void handleError(ErrorCode error) {
 }
 
 
-// TODO: figure out logging!
+// TODO: figure out logging! Scroll text if longer than 16 char?
 void log(LogLevel level, String message) {
     String logLevelStr;
-    switch (level) {
-        case INFO: logLevelStr = "INFO"; break;
-        case WARN: logLevelStr = "WARN"; break;
-        case ERROR: logLevelStr = "ERROR"; break;
+    if (level == UI) {
+        updateLCD(message);
     }
     Serial.print(" [");
     Serial.print(millis());
@@ -174,6 +173,17 @@ void checkDeviceStatus(int pin, const String& onMessage, const String& offMessag
     int status = digitalRead(pin);
     String message = (status == HIGH) ? onMessage : offMessage;
     updateLCD(message);
+}
+
+void initializationRoutine() {
+    log(INFO, "__INITIALIZATION STATE__");
+    log(UI, "INIT")
+
+    // Initialize the Pressure sensor
+    PressureTransducer _sensor(PRESSURE_GAUGE_DEFAULT_ADDR, Serial2);
+    log(UI, "Init 972b");
+
+    currentState = DEBUG;
 }
 
 void vtrx_btest_020() {
