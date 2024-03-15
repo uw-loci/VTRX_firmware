@@ -19,13 +19,15 @@ const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // LCD pins
 
 enum SystemState {
   INITIALIZATION,
-  IDLE,
   DEBUG,
+  IDLE,
+  PUMPS_ON,             // Activated by the Pumps Power On switch
+  TURBO_ROTOR_ON,       // Turbo rotor activated, requires PUMPS_ON first
+  TURBO_VENT_OPEN,      // Can be activated independently
+  ARGON_VALVE_OPEN,     
+  ERROR_STATE,          // Entered if error condition is detected
   STANDARD_PUMP_DOWN,
   ARGON_PUMP_DOWN,
-  VENTING,
-  POWER_LOSS,
-  PRESSURE_ERROR,
   REMOTE_CONTROL,
 };
 
@@ -42,17 +44,6 @@ enum ErrorCode {
   UNEXPECTED_PRESSURE_READING
 };
 
-void setupWatchdog(int interval) {
-  MCUSR = 0; // Clear reset flags
-  WDTCSR = bit(WDCE) | bit(WDE); // Set change enable
-  WDTCSR = bit(WDIE) | interval; // Set interrupt mode and interval
-}
-
-ISR(WDT_vect) {
-  logMessage(WARN, "Watchdog interrupt triggered");
-  // Reset watchdog
-}
-
 SystemState currentState = INITIALIZATION;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7); // Initialize LCD display
 
@@ -68,6 +59,11 @@ void setup() {
     pinMode(TURBO_GATE_VALVE_CLOSED_PIN, INPUT);
     pinMode(ARGON_GATE_VALVE_CLOSED_PIN, INPUT);
     pinMode(ARGON_GATE_VALVE_OPEN_PIN, INPUT);
+    pinMode(TURBO_GATE_OPEN_LED_PIN, OUTPUT);
+    pinMode(TURBO_GATE_CLOSED_LED_PIN, OUTPUT);
+    pinMode(ARGON_GATE_VALVE_OPEN_LED_PIN, OUTPUT);
+    pinMode(ARGON_GATE_VALVE_CLOSED_LED_PIN, OUTPUT)
+    
     
     Serial.begin(9600); // Initialize the serial for programming
     Serial1.begin(9600); // Initialize the serial to LabVIEW
@@ -97,7 +93,8 @@ void loop() {
         case IDLE:
         // Begin IDLE state
             log(INFO, "______________IDLE STATE______________");
-
+            displayPressureReading();
+            
         case STANDARD_PUMP_DOWN:
         // TODO: handle standard pump down logic
             log(INFO, "_______STANDARD_PUMP_DOWN STATE_______");
@@ -143,10 +140,18 @@ void log(LogLevel level, String message) {
         case INFO: logLevelStr = "INFO"; break;
         case WARN: logLevelStr = "WARN"; break;
         case ERROR: logLevelStr = "ERROR"; break;
+        case UI:    // Special handling for UI log level
+            lcd.clear();  // Clear LCD display
+            lcd.setCursor(0, 0);  // Set cursor to top-left
+            lcd.print(message);  // Print message on LCD
+            // No break here as we want the UI messages also logged via Serial
+        default: logLevelStr = "INFO"; // Default to INFO if not matched
     }
     Serial.print(" [");
     Serial.print(millis());
     Serial.print("] ");
+    Serial.print(logLevelStr); // Print log level
+    Serial.print(": ");
     Serial.println(message);
 }
 
@@ -170,10 +175,31 @@ void startupMsg() {
     updateLCD("startup check.."); // transition msg
 }
 
+void displayPressureReading() {
+    String pressure = _sensor.readPressure();
+    log(UI, "Pressure: " + pressure + " mbar");
+}
+
 void checkDeviceStatus(int pin, const String& onMessage, const String& offMessage) {
     int status = digitalRead(pin);
     String message = (status == HIGH) ? onMessage : offMessage;
     updateLCD(message);
+}
+
+void updateLEDStatus() {
+    // This function simply writes the status of the valve switches to the LEDs
+    // Update Turbo Gate Valve LEDs
+    digitalWrite(TURBO_GATE_OPEN_LED_PIN, digitalRead(TURBO_GATE_VALVE_OPEN_PIN));
+    digitalWrite(TURBO_GATE_CLOSED_LED_PIN, digitalRead(TURBO_GATE_VALVE_CLOSED_PIN));
+    
+    // Update Argon Gate Valve LEDs
+    digitalWrite(ARGON_GATE_VALVE_OPEN_LED_PIN, digitalRead(ARGON_GATE_VALVE_OPEN_PIN));
+    digitalWrite(ARGON_GATE_VALVE_CLOSED_LED_PIN, digitalRead(ARGON_GATE_VALVE_CLOSED_PIN));
+}
+
+void selfChecks() {
+    updateLEDStatus();
+    
 }
 
 void vtrx_btest_020() {
