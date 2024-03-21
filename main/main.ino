@@ -17,18 +17,19 @@
 #define ARGON_GATE_VALVE_CLOSED_LED_PIN 10
 const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // LCD pins
 
-enum SystemState {
-  INITIALIZATION,
-  DEBUG,
-  IDLE,
-  PUMPS_ON,             // Activated by the Pumps Power On switch
-  TURBO_ROTOR_ON,       // Turbo rotor activated, requires PUMPS_ON first
-  TURBO_VENT_OPEN,      // Can be activated independently
-  ARGON_VALVE_OPEN,     
-  ERROR_STATE,          // Entered if error condition is detected
+enum SystemState {   
+  ERROR_STATE,     
   STANDARD_PUMP_DOWN,
   ARGON_PUMP_DOWN,
   REMOTE_CONTROL,
+};
+
+// Error structure to hold error details
+struct Error {
+  ErrorCode code;
+  String actual;
+  String expected;
+  bool isPersistent; // true for persistent, false for temporary
 };
 
 enum LogLevel {
@@ -39,10 +40,21 @@ enum LogLevel {
 };
 
 enum ErrorCode {
-  SENSOR_FAILURE,
-  COMMUNICATION_TIMEOUT,
-  UNEXPECTED_PRESSURE_READING
-};
+    VALVE_CONTENTION,
+    COLD_CATHODE_FAILURE,
+    MICROPIRANI_FAILURE,
+    PRESSURE_DOSE_EXCEEDED,
+    UNEXPECTED_PRESSURE_ERROR,
+    SAFETY_RELAY_ERROR,
+    ARGON_GATE_VALVE_ERROR,
+    SAFETY_RELAY_ERROR,
+    ARGON_GATE_VALVE_ERROR,
+    TURBO_GATE_VALVE_ERROR,
+    VENT_VALVE_OPEN_ERROR,
+    PRESSURE_NACK_ERROR,
+    TURBO_GATE_VALVE_WARNING,
+    TURBO_ROTOR_ON_WARNING,
+}
 
 SystemState currentState = INITIALIZATION;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7); // Initialize LCD display
@@ -50,7 +62,7 @@ PressureTransducer sensor(PRESSURE_GAUGE_DEFAULT_ADDR, Serial2); // Initialize t
 log(UI, "Init 972b");
 
 void setup() {
-    lcd.begin(16, 2); // Set up the LCD's number of columns and rows
+    lcd.begin(20, 4); // Set up the LCD's number of columns and rows
     
     // Initialize all status pins as inputs
     pinMode(PUMPS_POWER_ON_PIN, INPUT);
@@ -71,86 +83,35 @@ void setup() {
     Serial1.begin(9600); // Initialize the serial to LabVIEW
     Serial2.begin(9600); // Initialize the serial to Pressure gauge (RS485)
 
+    startupMsg();
 }
 
 void loop() {
+    // VTRX-BTEST-020: Test serial reading from pressure gauge using arduino at 1 atm
+    vtrx_btest_040();
 
-
-    // This switch statement provides a state machine 
-    switch (currentState)
-    {
-        case INITIALIZATION:
-        // Perform initialization
-            log(INFO, "__INITIALIZATION STATE__");
-            log(UI, "INIT");
-            startupMsg();
-            
-            currentState = DEBUG;
-            break;
-
-        case IDLE:
-        // Begin IDLE state
-            log(INFO, "______________IDLE STATE______________");
-            displayPressureReading();
-            
-        case STANDARD_PUMP_DOWN:
-        // TODO: handle standard pump down logic
-            log(INFO, "_______STANDARD_PUMP_DOWN STATE_______");
-
-        case DEBUG:
-        // Use this to test specific functionality
-            log(INFO, "_____________DEBUG STATE______________");
-        
-            // VTRX-BTEST-020: Test serial reading from pressure gauge using arduino at 1 atm
-            vtrx_btest_040();
-
-            // VTRX-BTEST-040: Test pressure safety relays reading from pressure gauge at 1 atm
-            // VTRX-BTEST-050: Test serial reading from pressure monitor in Labview sub-VI from pressure gauge at 1 atm
-
-    }
-
-    // Additional loop code and functionality as needed
-    currentState = INITIALIZATION;
+    // VTRX-BTEST-040: Test pressure safety relays reading from pressure gauge at 1 atm
+    // VTRX-BTEST-050: Test serial reading from pressure monitor in Labview sub-VI from pressure gauge at 1 atm
 }
 
-void handleError(ErrorCode error) {
-  switch (error) {
-    case SENSOR_FAILURE:
-      log(ERROR, "Sensor failure detected");
-      // Attempt to reset or reinitialize sensor
-      break;
-    case COMMUNICATION_TIMEOUT:
-      log(WARN, "Communication timeout, retrying...");
-      // Retry communication
-      break;
-    case UNEXPECTED_PRESSURE_READING:
-      log(ERROR, "Unexpected pressure reading");
-      // Transition to a safe state
-      break;
+void cycleThroughErrors() {
+  unsigned long currentTime = millis();
+
+  // Change errors every 2 seconds
+  if (currentTime - lastErrorDisplayTime >= 2000) {
+    lastErrorDisplayTime = currentTime;
+    
+    // Display current error
+    if (errors[currentErrorIndex].isPersistent) {
+      lcd.setCursor(0, 2);
+      lcd.print("Error " + String(errors[currentErrorIndex].code) + ": Actual: " + errors[currentErrorIndex].actual);
+      lcd.setCursor(0, 3);
+      lcd.print("Error " + String(errors[currentErrorIndex].code) + ": Expected: " + errors[currentErrorIndex].expected);
+    }
+
+    // Move to next error, cycling back to start if at end
+    currentErrorIndex = (currentErrorIndex + 1) % errorCount;
   }
-}
-
-
-// TODO: figure out logging!
-void log(LogLevel level, String message) {
-    String logLevelStr;
-    switch (level) {
-        case INFO: logLevelStr = "INFO"; break;
-        case WARN: logLevelStr = "WARN"; break;
-        case ERROR: logLevelStr = "ERROR"; break;
-        case UI:    // Special handling for UI log level
-            lcd.clear();  // Clear LCD display
-            lcd.setCursor(0, 0);  // Set cursor to top-left
-            lcd.print(message);  // Print message on LCD
-            // No break here as we want the UI messages also logged via Serial
-        default: logLevelStr = "INFO"; // Default to INFO if not matched
-    }
-    Serial.print(" [");
-    Serial.print(millis());
-    Serial.print("] ");
-    Serial.print(logLevelStr); // Print log level
-    Serial.print(": ");
-    Serial.println(message);
 }
 
 void performSafetyChecks() {
