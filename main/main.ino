@@ -1,7 +1,9 @@
 #include <LiquidCrystal.h>  // Include LCD library
 #include "972b.h"  // Include the pressure transducer library
-#include <avr/wdt.h> // Include Watchdog timer library
 
+/**
+*   Input pin assignments
+**/
 #define PRESSURE_GAUGE_DEFAULT_ADDR    "253"
 #define PUMPS_POWER_ON_PIN              41
 #define TURBO_ROTOR_ON_PIN              40
@@ -24,7 +26,17 @@ enum SystemState {
   REMOTE_CONTROL,
 };
 
-// Error structure to hold error details
+/** 
+*    The Error data structure contains information about possible errors
+*
+*    It contains the following fields:
+*        - CODE: an enum that identifies the type of error
+*        - EXPECTED: A String representing the expected value or state that was detected when the error occurred. This
+*                    might refer to a sensor reading, a status code, or any other piece of data relevant to the error.
+*        - ACTUAL: A String representing the actual value or state detected when the error occured.
+*        - PERSISTENT: a bool indicating whether the error is persistent(true) or temporary (false)
+*                        persistent errors require 
+**/ 
 struct Error {
   ErrorCode code;
   String actual;
@@ -32,28 +44,22 @@ struct Error {
   bool isPersistent; // true for persistent, false for temporary
 };
 
-enum LogLevel {
-    INFO,           // Serial output
-    UI,             // LCD and Serial
-    WARN,
-    ERROR
-};
 
-enum ErrorCode {
-    VALVE_CONTENTION,
-    COLD_CATHODE_FAILURE,
-    MICROPIRANI_FAILURE,
-    PRESSURE_DOSE_EXCEEDED,
-    UNEXPECTED_PRESSURE_ERROR,
-    SAFETY_RELAY_ERROR,
-    ARGON_GATE_VALVE_ERROR,
-    SAFETY_RELAY_ERROR,
-    ARGON_GATE_VALVE_ERROR,
-    TURBO_GATE_VALVE_ERROR,
-    VENT_VALVE_OPEN_ERROR,
-    PRESSURE_NACK_ERROR,
-    TURBO_GATE_VALVE_WARNING,
-    TURBO_ROTOR_ON_WARNING,
+enum Error errors[] {
+    {VALVE_CONTENTION, "ValvesOK", "ValvFail", true},
+    {COLD_CATHODE_FAILURE, "972OK", "972FAIL", true},
+    {MICROPIRANI_FAILURE, "972OK", "972FAIL", true},
+    {UNEXPECTED_PRESSURE_ERROR, "", "", false},
+    {SAFETY_RELAY_ERROR, "CLOSED", "OPEN", true},
+    {ARGON_GATE_VALVE_ERROR,},
+    {SAFETY_RELAY_ERROR,},
+    {ARGON_GATE_VALVE_ERROR,},
+    {TURBO_GATE_VALVE_ERROR,},
+    {VENT_VALVE_OPEN_ERROR,},
+    {PRESSURE_NACK_ERROR,},
+    {PRESSURE_DOSE_WARNING,,,false},
+    {TURBO_GATE_VALVE_WARNING,},
+    {TURBO_ROTOR_ON_WARNING,},
 }
 
 SystemState currentState = INITIALIZATION;
@@ -87,11 +93,9 @@ void setup() {
 }
 
 void loop() {
-    // VTRX-BTEST-020: Test serial reading from pressure gauge using arduino at 1 atm
-    vtrx_btest_040();
-
-    // VTRX-BTEST-040: Test pressure safety relays reading from pressure gauge at 1 atm
-    // VTRX-BTEST-050: Test serial reading from pressure monitor in Labview sub-VI from pressure gauge at 1 atm
+    // vtrx_btest_020();    // VTRX-BTEST-020: Test serial reading from pressure gauge using arduino at 1 atm
+    vtrx_btest_040();       // VTRX-BTEST-040: Test pressure safety relays reading from pressure gauge at 1 atm
+    cycleThroughErrors();
 }
 
 void cycleThroughErrors() {
@@ -104,9 +108,9 @@ void cycleThroughErrors() {
     // Display current error
     if (errors[currentErrorIndex].isPersistent) {
       lcd.setCursor(0, 2);
-      lcd.print("Error " + String(errors[currentErrorIndex].code) + ": Actual: " + errors[currentErrorIndex].actual);
+      lcd.print("Err: " + String(errors[currentErrorIndex].code) + ": Expected: " + errors[currentErrorIndex].expected);
       lcd.setCursor(0, 3);
-      lcd.print("Error " + String(errors[currentErrorIndex].code) + ": Expected: " + errors[currentErrorIndex].expected);
+      lcd.print("Err: " + String(errors[currentErrorIndex].code) + ": Actual: " + errors[currentErrorIndex].actual);
     }
 
     // Move to next error, cycling back to start if at end
