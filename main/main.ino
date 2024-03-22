@@ -2,9 +2,8 @@
 #include "972b.h"  // Include the pressure transducer library
 
 /**
-*   Input pin assignments
+*   Pin assignments
 **/
-#define PRESSURE_GAUGE_DEFAULT_ADDR    "253"
 #define PUMPS_POWER_ON_PIN              41
 #define TURBO_ROTOR_ON_PIN              40
 #define TURBO_VENT_OPEN_PIN             39
@@ -18,6 +17,14 @@
 #define ARGON_GATE_VALVE_OPEN_LED_PIN   11
 #define ARGON_GATE_VALVE_CLOSED_LED_PIN 10
 const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // LCD pins
+
+/**
+*	System constants
+**/
+#define EXPECTED_AMBIENT_PRESSURE "1.01e3"
+#define PRESSURE_GAUGE_DEFAULT_ADDR "253"
+
+
 
 enum SystemState {   
   ERROR_STATE,     
@@ -39,19 +46,20 @@ enum SystemState {
 **/ 
 struct Error {
   ErrorCode code;
-  String actual;
   String expected;
+  String actual;
   bool isPersistent; // true for persistent, false for temporary
 };
 
 
 enum Error errors[] {
-    {VALVE_CONTENTION, "ValvesOK", "ValvFail", true},
+	// ERROR CODE, 		EXPECTED, 	ACTUAL,     PERSISTENT
+    {VALVE_CONTENTION, 	"ValvesOK", "ValvFail", true},
     {COLD_CATHODE_FAILURE, "972OK", "972FAIL", true},
     {MICROPIRANI_FAILURE, "972OK", "972FAIL", true},
-    {UNEXPECTED_PRESSURE_ERROR, "", "", false},
+    {UNEXPECTED_PRESSURE_ERROR, "1.01E3", "", false},
     {SAFETY_RELAY_ERROR, "CLOSED", "OPEN", true},
-    {ARGON_GATE_VALVE_ERROR,},
+    {ARGON_GATE_VALVE_ERROR,"ARGERR", },
     {SAFETY_RELAY_ERROR,},
     {ARGON_GATE_VALVE_ERROR,},
     {TURBO_GATE_VALVE_ERROR,},
