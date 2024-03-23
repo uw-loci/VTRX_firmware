@@ -12,20 +12,20 @@
 #define TURBO_GATE_VALVE_CLOSED_PIN     33
 #define ARGON_GATE_VALVE_CLOSED_PIN     32
 #define ARGON_GATE_VALVE_OPEN_PIN       31
-#define TURBO_GATE_OPEN_LED_PIN         13
-#define TURBO_GATE_CLOSED_LED_PIN       14
-#define ARGON_GATE_VALVE_OPEN_LED_PIN   11
-#define ARGON_GATE_VALVE_CLOSED_LED_PIN 10
 const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // LCD pins
 
 /**
 *	System constants
 **/
-#define EXPECTED_AMBIENT_PRESSURE "1.01e3"
-#define PRESSURE_GAUGE_DEFAULT_ADDR "253"
+#define EXPECTED_AMBIENT_PRESSURE  1013     // Nominal ambient pressure  [millibar]
+#define AMBIENT_PRESSURE_THRESHOLD 101      // 10% threshold for ambient [millibar]
+#define PRESSURE_GAUGE_DEFAULT_ADDR "253"   // Default 972b device address
+#define PRESSURE_READING_RETRY_LIMIT 5      // Attempts allowed to request pressure reading before raising error
 
 
-
+/**
+*   System State data
+*/
 enum SystemState {   
   ERROR_STATE,     
   STANDARD_PUMP_DOWN,
@@ -33,16 +33,32 @@ enum SystemState {
   REMOTE_CONTROL,
 };
 
+/**
+ *    The SwitchState data structure represents the states of each input pin.
+ *    Note, they are defined as `ints` rather than `bool`, because they are
+ *    assigned by the digitalRead() function, which returns an integer.
+**/
+struct SwitchStates {
+  int pumpsPowerOn;
+  int turboRotorOn;
+  int turboVentOpen;
+  int pressureGaugePowerOn;
+  int turboGateValveOpen;
+  int turboGateValveClosed;
+  int argonGateValveClosed;
+  int argonGateValveOpen;
+};
+
 /** 
-*    The Error data structure contains information about possible errors
-*
-*    It contains the following fields:
-*        - CODE: an enum that identifies the type of error
-*        - EXPECTED: A String representing the expected value or state that was detected when the error occurred. This
-*                    might refer to a sensor reading, a status code, or any other piece of data relevant to the error.
-*        - ACTUAL: A String representing the actual value or state detected when the error occured.
-*        - PERSISTENT: a bool indicating whether the error is persistent(true) or temporary (false)
-*                        persistent errors require 
+ *    The Error data structure contains information about possible errors
+ *
+ *    It contains the following fields:
+ *        CODE: an enum that identifies the type of error
+ *        EXPECTED: A String representing the expected value or state that was detected when the error occurred. This
+ *                  might refer to a sensor reading, a status code, or any other piece of data relevant to the error.
+ *        ACTUAL: A String representing the actual value or state detected when the error occured.
+ *        PERSISTENT: a bool indicating whether the error is persistent(true) or temporary (false)
+ *                    persistent errors require 
 **/ 
 struct Error {
   ErrorCode code;
@@ -53,27 +69,26 @@ struct Error {
 
 
 enum Error errors[] {
-	// ERROR CODE, 		EXPECTED, 	ACTUAL,     PERSISTENT
-    {VALVE_CONTENTION, 	"ValvesOK", "ValvFail", true},
-    {COLD_CATHODE_FAILURE, "972OK", "972FAIL", true},
-    {MICROPIRANI_FAILURE, "972OK", "972FAIL", true},
-    {UNEXPECTED_PRESSURE_ERROR, "1.01E3", "", false},
-    {SAFETY_RELAY_ERROR, "CLOSED", "OPEN", true},
-    {ARGON_GATE_VALVE_ERROR,"ARGERR", },
-    {SAFETY_RELAY_ERROR,},
-    {ARGON_GATE_VALVE_ERROR,},
-    {TURBO_GATE_VALVE_ERROR,},
-    {VENT_VALVE_OPEN_ERROR,},
-    {PRESSURE_NACK_ERROR,},
-    {PRESSURE_DOSE_WARNING,,,false},
-    {TURBO_GATE_VALVE_WARNING,},
-    {TURBO_ROTOR_ON_WARNING,},
+	// ERROR CODE, 		        EXPECTED, 	    ACTUAL,         is_PERSISTENT
+    {VALVE_CONTENTION,          "ValvesOK",     "ValvFail",     true},
+    {COLD_CATHODE_FAILURE,      "972OK",        "972FAIL",      true},
+    {MICROPIRANI_FAILURE,       "972OK",        "972FAIL",      true},
+    {UNEXPECTED_PRESSURE_ERROR, "1.01E3",       "",             false},
+    {SAFETY_RELAY_ERROR,        "CLOSED",       "OPEN",         true},
+    {ARGON_GATE_VALVE_ERROR,    "Expected",     "ACTUAL",       true},
+    {SAFETY_RELAY_ERROR,        "Expected",     "ACTUAL",       true},
+    {ARGON_GATE_VALVE_ERROR,    "Expected",     "ACTUAL",       true},
+    {TURBO_GATE_VALVE_ERROR,    "Expected",     "ACTUAL",       true},
+    {VENT_VALVE_OPEN_ERROR,     "Expected",     "ACTUAL",       true},
+    {PRESSURE_NACK_ERROR,       "Expected",     "ACTUAL",       true},
+    {PRESSURE_DOSE_WARNING,     "Expected",     "ACTUAL",       false},
+    {TURBO_GATE_VALVE_WARNING,  "Expected",     "ACTUAL",       false},
+    {TURBO_ROTOR_ON_WARNING,    "Expected",     "ACTUAL",       false},
 }
 
 SystemState currentState = INITIALIZATION;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7); // Initialize LCD display
 PressureTransducer sensor(PRESSURE_GAUGE_DEFAULT_ADDR, Serial2); // Initialize the Pressure sensor
-log(UI, "Init 972b");
 
 void setup() {
     lcd.begin(20, 4); // Set up the LCD's number of columns and rows
@@ -86,12 +101,7 @@ void setup() {
     pinMode(TURBO_GATE_VALVE_OPEN_PIN, INPUT);
     pinMode(TURBO_GATE_VALVE_CLOSED_PIN, INPUT);
     pinMode(ARGON_GATE_VALVE_CLOSED_PIN, INPUT);
-    pinMode(ARGON_GATE_VALVE_OPEN_PIN, INPUT);
-    pinMode(TURBO_GATE_OPEN_LED_PIN, OUTPUT);
-    pinMode(TURBO_GATE_CLOSED_LED_PIN, OUTPUT);
-    pinMode(ARGON_GATE_VALVE_OPEN_LED_PIN, OUTPUT);
-    pinMode(ARGON_GATE_VALVE_CLOSED_LED_PIN, OUTPUT)
-    
+    pinMode(ARGON_GATE_VALVE_OPEN_PIN, INPUT); 
     
     Serial.begin(9600); // Initialize the serial for programming
     Serial1.begin(9600); // Initialize the serial to LabVIEW
@@ -102,11 +112,63 @@ void setup() {
 
 void loop() {
     // vtrx_btest_020();    // VTRX-BTEST-020: Test serial reading from pressure gauge using arduino at 1 atm
-    vtrx_btest_040();       // VTRX-BTEST-040: Test pressure safety relays reading from pressure gauge at 1 atm
-    cycleThroughErrors();
+    // vtrx_btest_040();       // VTRX-BTEST-040: Test pressure safety relays reading from pressure gauge at 1 atm
+    cycleThroughErrorsLCD();
+    normalOperation();
 }
 
-void cycleThroughErrors() {
+void normalOperation() {
+    // Print state to LCD and log serial: PUMP_DOWN
+
+    // Read system switch states
+    SwitchStates currentStates = readSwitchStates();
+
+    // Verify 972b status
+        // If status == "O" (OKAY), continue on.
+        // If status == "C", raise COLD_CATHODE_FAILURE, and loop back up to readSwitchStates()
+        // If status == "R", raise PRESSURE_DOSE_WARNING, and continue
+        // If status == "M", raise MICROPIRANI_FAILURE, and loop back up to readSwitchStates()
+    
+    // Verify Pressure sensor output units: mbar
+        // If response == "MBAR", continue on.
+        // Else, loop back up to readSwitchStates()
+
+    // Verify pressure safety relay is CLOSED
+        // If SP1 is OPEN, raise PRESSURE_NACK_ERROR, and loop back up to readSwitchStates()
+        // If closed, continue on.
+
+    // Request initial pressure
+        // If NACK, retry until a successful reading or PRESSURE_READING_RETRY_LIMIT reached
+        // If PRESSURE_READING_RETRY_LIMIT reached, raise PRESSURE_NACK_ERROR and loop back to readSwitchStates()
+        // If successful reading, continue on
+
+    // Verify pressure is within range for 1 atm
+        // If current reading < (EXPECTED_AMBIENT_PRESSURE - AMBIENT_PRESSURE_THRESHOLD)
+
+    // Log pressure on LCD
+
+    // checkValveConfiguration()
+    // Raise the ARGON_GATE_VALVE_ERROR if ARGON_GATE_VALVE_CLOSED_PIN and ARGON_GATE_VALVE_OPEN_PIN() both HIGH at the same time
+    // Raise the TURBO_GATE_VALUE_ERROR if TURBO_GATE_VALVE_OPEN_PIN and TURBO_GATE_VALVE_CLOSED_PIN both HIGH at the same time
+    // 
+
+    /***     Begin Pump-down monitoring      ***/ 
+    delay(1);
+
+    // Read peripheral system switches
+    SwitchStates currentStates = readSwitchStates();
+
+    // Validate valve configuration for pump down.
+    // This function throws errors for valve contention, 
+    // and warnings if the turbo or vent valves are not 
+    // configured properly.
+    checkValveConfiguration(currentStates);
+
+
+
+}
+
+void cycleThroughErrorsLCD() {
   unsigned long currentTime = millis();
 
   // Change errors every 2 seconds
@@ -126,13 +188,39 @@ void cycleThroughErrors() {
   }
 }
 
-void performSafetyChecks() {
-    // Check status of panel switches
+// Function to read current status of panel switches
+// Returns the current state of all input pins
+SwitchStates readSwitchStates() {
+    SwitchStates states;
+    states.pumpsPowerOn = digitalRead(PUMPS_POWER_ON_PIN);
+    states.turboRotorOn = digitalRead(TURBO_ROTOR_ON_PIN);
+    states.turboVentOpen = digitalRead(TURBO_VENT_OPEN_PIN);
+    states.pressureGaugePowerOn = digitalRead(PRESSURE_GAUGE_POWER_ON_PIN);
+    states.turboGateValveOpen = digitalRead(TURBO_GATE_VALVE_OPEN_PIN);
+    states.turboGateValveClosed = digitalRead(TURBO_GATE_VALVE_CLOSED_PIN);
+    states.argonGateValveClosed = digitalRead(ARGON_GATE_VALVE_CLOSED_PIN);
+    states.argonGateValveOpen = digitalRead(ARGON_GATE_VALVE_OPEN_PIN);
+    return states;
+}
+
+void checkValveConfiguration(const SwitchStates& states) {
+    // Check for Argon Gate Valve contention
+    if (states.argonGateValveClosed == HIGH && states.argonGateValveOpen == HIGH) {
+        // Argon gate valve error: both pins are HIGH simultaneously
+        updateErrorActualValue(ARGON_GATE_VALVE_ERROR, "BOTH_HIGH");
+        Serial.println("ARGON_GATE_VALVE_ERROR: Both CLOSED and OPEN pins are HIGH");
+    }
+
+    // Check for Turbo Gate Valve contention
+    if (states.turboGateValveOpen == HIGH && states.turboGateValveClosed == HIGH) {
+        // Turbo gate valve error: both pins are HIGH simultaneously
+        updateErrorActualValue(TURBO_GATE_VALVE_ERROR, "BOTH_HIGH");
+        Serial.println("TURBO_GATE_VALVE_ERROR: Both CLOSED and OPEN pins are HIGH");
+    }
 }
 
 void sendDataToLabVIEW() {
-    // Your existing code for sending data to LabVIEW
-    // This can be refactored out of the loop() function for better code organization
+    // This can live outside the loop() function for better code organization
 }
 
 void updateLCD(const String &message) {
@@ -146,27 +234,20 @@ void startupMsg() {
     updateLCD("startup check.."); // transition msg
 }
 
+// TODO: 
 void displayPressureReading() {
     String pressure = sensor.readPressure();
-    log(UI, "Pressure: " + pressure + " mbar");
+    //float pressure = sensor.readPressure(); 
+    String pressureStr = String(pressure, 4) + "mbar"; // Convert pressure to string with 4 decimal places
+    lcd.setCursor(0, 0);
+    lcd.print("Pressure ");
+    lcd.print(pressureStr);
+    // Assuming errorCount is calculated elsewhere and available here
+    lcd.print(" Error Count: [ER");
+    lcd.print(errorCount); // Assuming you have a mechanism to count errors
+    lcd.print("]");
 }
 
-void checkDeviceStatus(int pin, const String& onMessage, const String& offMessage) {
-    int status = digitalRead(pin);
-    String message = (status == HIGH) ? onMessage : offMessage;
-    updateLCD(message);
-}
-
-void updateLEDStatus() {
-    // This function simply writes the status of the valve switches to the LEDs
-    // Update Turbo Gate Valve LEDs
-    digitalWrite(TURBO_GATE_OPEN_LED_PIN, digitalRead(TURBO_GATE_VALVE_OPEN_PIN));
-    digitalWrite(TURBO_GATE_CLOSED_LED_PIN, digitalRead(TURBO_GATE_VALVE_CLOSED_PIN));
-    
-    // Update Argon Gate Valve LEDs
-    digitalWrite(ARGON_GATE_VALVE_OPEN_LED_PIN, digitalRead(ARGON_GATE_VALVE_OPEN_PIN));
-    digitalWrite(ARGON_GATE_VALVE_CLOSED_LED_PIN, digitalRead(ARGON_GATE_VALVE_CLOSED_PIN));
-}
 
 void selfChecks() {
     updateLEDStatus();
@@ -174,11 +255,9 @@ void selfChecks() {
 }
 
 void vtrx_btest_020() {
-    log(UI, "BTEST-020");
 
 }
 
 void vtrx_btest_040() {
-    log(UI, "BTEST-040");
 
 }
