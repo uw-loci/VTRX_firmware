@@ -24,19 +24,20 @@ const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // LCD pins
 
 
 /**
-*   System State data
+*   System State representation
 */
 enum SystemState {   
   ERROR_STATE,     
   STANDARD_PUMP_DOWN,
+  HIGH_VACUUM,
   ARGON_PUMP_DOWN,
   REMOTE_CONTROL,
 };
 
 /**
- *    The SwitchState data structure represents the states of each input pin.
- *    Note, they are defined as `ints` rather than `bool`, because they are
- *    assigned by the digitalRead() function, which returns an integer.
+ *    The SwitchState data structure represents the switch states of each input pin.
+ *    They are initialized as integers rather than boolean states, because they are
+ *    assigned by the Arduino digitalRead() function, which returns an integer.
 **/
 struct SwitchStates {
   int pumpsPowerOn;
@@ -57,14 +58,14 @@ struct SwitchStates {
  *        EXPECTED: A String representing the expected value or state that was detected when the error occurred. This
  *                  might refer to a sensor reading, a status code, or any other piece of data relevant to the error.
  *        ACTUAL: A String representing the actual value or state detected when the error occured.
- *        PERSISTENT: a bool indicating whether the error is persistent(true) or temporary (false)
- *                    persistent errors require 
+ *        PERSISTENT: a bool indicating whether the error is persistent(true) or temporary (false).
+ *                    Temporary errors will dissapear after 
 **/ 
 struct Error {
-  ErrorCode code;
-  String expected;
-  String actual;
-  bool isPersistent; // true for persistent, false for temporary
+  ErrorCode code;       // type of error
+  String expected;      // expected value or state that was detected when the error occurred. This might refer to a sensor reading, a status code, or any other piece of data relevant to the error.
+  String actual;        // 
+  bool isPersistent;    // true for persistent, false for temporary
 };
 
 
@@ -86,8 +87,10 @@ enum Error errors[] {
     {TURBO_ROTOR_ON_WARNING,    "Expected",     "ACTUAL",       false},
 }
 
-SystemState currentState = INITIALIZATION;
-LiquidCrystal lcd(rs, en, d4, d5, d6, d7); // Initialize LCD display
+unsigned int currentErrorIndex = 0;
+unsigned int errorCount = 0;                // This will be updated as errors are added/removed
+unsigned long lastErrorDisplayTime = 0;     // To track when the last error was displayed
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);  // Initialize LCD display
 PressureTransducer sensor(PRESSURE_GAUGE_DEFAULT_ADDR, Serial2); // Initialize the Pressure sensor
 
 void setup() {
@@ -111,8 +114,8 @@ void setup() {
 }
 
 void loop() {
-    // vtrx_btest_020();    // VTRX-BTEST-020: Test serial reading from pressure gauge using arduino at 1 atm
-    // vtrx_btest_040();       // VTRX-BTEST-040: Test pressure safety relays reading from pressure gauge at 1 atm
+    // vtrx_btest_020();    // Test serial reading from pressure gauge using arduino at 1 atm
+    // vtrx_btest_040();    // Test pressure safety relays reading from pressure gauge at 1 atm
     cycleThroughErrorsLCD();
     normalOperation();
 }
@@ -207,7 +210,7 @@ void checkValveConfiguration(const SwitchStates& states) {
     // Check for Argon Gate Valve contention
     if (states.argonGateValveClosed == HIGH && states.argonGateValveOpen == HIGH) {
         // Argon gate valve error: both pins are HIGH simultaneously
-        updateErrorActualValue(ARGON_GATE_VALVE_ERROR, "BOTH_HIGH");
+        throwError(ARGON_GATE_VALVE_ERROR, "BOTH_HIGH");
         Serial.println("ARGON_GATE_VALVE_ERROR: Both CLOSED and OPEN pins are HIGH");
     }
 
@@ -248,16 +251,29 @@ void displayPressureReading() {
     lcd.print("]");
 }
 
+void updateError(ErrorCode errorCode, String expected, String actual, bool persistence) {
+    for (unsigned int i = 0; i < errorCount; i++) {
+        if (errors[i].code == errorCode) {
+            // error already exists, update it
+            errors[i].expected = expected;
+            errors[i].actual = actual; 
+            errors[i].isPersistent = persistence;
+            return;
+        }
+    }
 
+    // Add new error if not found
+    if (errorCount < sizeof(errors) / sizeof(errors[0])) {
+        errors[errorCount++] = {errorCode, expected, actual, isPersistent};
+    }
+}
+
+void removeError(ErroCode)
 void selfChecks() {
-    updateLEDStatus();
-
 }
 
 void vtrx_btest_020() {
-
 }
 
 void vtrx_btest_040() {
-
 }
