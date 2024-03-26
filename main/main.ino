@@ -64,19 +64,19 @@ struct SwitchStates {
 struct Error {
   ErrorCode code;       // type of error
   String expected;      // expected value or state that was detected when the error occurred. This might refer to a sensor reading, a status code, or any other piece of data relevant to the error.
-  String actual;        // 
+  String actual;        // actual value that is read
   bool isPersistent;    // true for persistent, false for temporary
 };
 
 
 enum Error errors[] {
 	// ERROR CODE, 		        EXPECTED, 	    ACTUAL,         is_PERSISTENT
-    {VALVE_CONTENTION,          "ValvesOK",     "ValvFail",     true},
-    {COLD_CATHODE_FAILURE,      "972OK",        "972FAIL",      true},
-    {MICROPIRANI_FAILURE,       "972OK",        "972FAIL",      true},
+    {VALVE_CONTENTION,          "VlvOK",        "VlvFAIL",      true},
+    {COLD_CATHODE_FAILURE,      "972Ok",        "972FAIL",      true},
+    {MICROPIRANI_FAILURE,       "972Ok",        "972FAIL",      true},
     {UNEXPECTED_PRESSURE_ERROR, "1.01E3",       "",             false},
     {SAFETY_RELAY_ERROR,        "CLOSED",       "OPEN",         true},
-    {ARGON_GATE_VALVE_ERROR,    "Expected",     "ACTUAL",       true},
+    {ARGON_GATE_VALVE_ERROR,    "ARGOFF",       "ACTUAL",       true},
     {SAFETY_RELAY_ERROR,        "Expected",     "ACTUAL",       true},
     {ARGON_GATE_VALVE_ERROR,    "Expected",     "ACTUAL",       true},
     {TURBO_GATE_VALVE_ERROR,    "Expected",     "ACTUAL",       true},
@@ -85,6 +85,7 @@ enum Error errors[] {
     {PRESSURE_DOSE_WARNING,     "Expected",     "ACTUAL",       false},
     {TURBO_GATE_VALVE_WARNING,  "Expected",     "ACTUAL",       false},
     {TURBO_ROTOR_ON_WARNING,    "Expected",     "ACTUAL",       false},
+    {UNSAFE_FOR_HV_WARNING,     "Expected",     "ACTUAL",       false}
 }
 
 unsigned int currentErrorIndex = 0;
@@ -168,27 +169,23 @@ void normalOperation() {
     checkValveConfiguration(currentStates);
 
 
-
 }
 
 void cycleThroughErrorsLCD() {
-  unsigned long currentTime = millis();
+    unsigned long currentTime = millis();
 
-  // Change errors every 2 seconds
-  if (currentTime - lastErrorDisplayTime >= 2000) {
-    lastErrorDisplayTime = currentTime;
-    
-    // Display current error
-    if (errors[currentErrorIndex].isPersistent) {
-      lcd.setCursor(0, 2);
-      lcd.print("Err: " + String(errors[currentErrorIndex].code) + ": Expected: " + errors[currentErrorIndex].expected);
-      lcd.setCursor(0, 3);
-      lcd.print("Err: " + String(errors[currentErrorIndex].code) + ": Actual: " + errors[currentErrorIndex].actual);
+    if (currentTime - lastErrorDisplayTime >= 2000) { // Change errors every 2 seconds
+        lastErrorDisplayTime = currentTime;
+        if (errorCount > 0) { // Check if there are errors to display
+            lcd.clear(); // Clear the LCD to update the error information
+            lcd.setCursor(0, 2);
+            lcd.print("Err: " + String(errors[currentErrorIndex].code) + ": Act: " + errors[currentErrorIndex].actual);
+            lcd.setCursor(0, 3);
+            lcd.print("Err: " + String(errors[currentErrorIndex].code) + ": Exp: " + errors[currentErrorIndex].expected);
+            
+            currentErrorIndex = (currentErrorIndex + 1) % errorCount; // Cycle through errors
+        }
     }
-
-    // Move to next error, cycling back to start if at end
-    currentErrorIndex = (currentErrorIndex + 1) % errorCount;
-  }
 }
 
 // Function to read current status of panel switches
@@ -268,7 +265,20 @@ void updateError(ErrorCode errorCode, String expected, String actual, bool persi
     }
 }
 
-void removeError(ErroCode)
+void removeError(ErrorCode error) {
+    // Simplified error removal logic
+    for (unsigned int i = 0; i < errorCount; i++) { 
+        if (errors[i].code == errorCode) {
+            // Shift errors down in the array to remove the error
+            for (unsigned int j = i; j < errorCount - 1; j++) {
+                errors[j] = errors[j + 1];
+            }
+            errorCount--;
+            return;
+        }
+    }
+}
+
 void selfChecks() {
 }
 
