@@ -17,10 +17,11 @@ const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // LCD pins
 /**
 *	System constants
 **/
-#define EXPECTED_AMBIENT_PRESSURE       1013     // Nominal ambient pressure        [millibar]
-#define AMBIENT_PRESSURE_TOLERANCE      101      // 10% tolerance level for ambient [millibar]
+#define EXPECTED_AMBIENT_PRESSURE       1013    // Nominal ambient pressure                         [millibar]
+#define AMBIENT_PRESSURE_TOLERANCE      101     // 10% tolerance level for ambient                  [millibar]
 #define PRESSURE_GAUGE_DEFAULT_ADDR     "253"   // Default 972b device address
-#define PRESSURE_READING_RETRY_LIMIT    3      // Attempts allowed to request pressure reading before raising error
+#define PRESSURE_READING_RETRY_LIMIT    3       // Attempts allowed before error. TODO: this should probably live in 972b driver
+#define AUTO_RESET_TIMEOUT              600000  // Time elapsed limit for non-persistent warnings   [milliseconds]
 
 
 /**
@@ -35,7 +36,7 @@ enum SystemState {
 };
 
 /**
- *    The SwitchState data structure represents the switch states of each input pin.
+ *    This structure contains the switch states of each input pin.
  *    They are initialized as integers rather than boolean states, because they are
  *    assigned by the Arduino digitalRead() function, which returns an integer.
 **/
@@ -58,35 +59,37 @@ struct SwitchStates {
  *        EXPECTED: A String representing the expected value or state that was detected when the error occurred. This
  *                  might refer to a sensor reading, a status code, or any other piece of data relevant to the error.
  *        ACTUAL: A String representing the actual value or state detected when the error occured.
- *        PERSISTENT: a bool indicating whether the error is persistent(true) or temporary (false).
- *                    Temporary errors will dissapear after 
+ *        ASSERTED: A bool indicating the active or deactivated status of the error
+ *        PERSISTENCE: a bool indicating whether the error is persistent(true) or temporary (false).
+ *                     Temporary errors will dissapear after a specified amount of time elapses (AUTO_RESET_TIMEOUT)
 **/ 
 struct Error {
   ErrorCode code;       // Name of error
-  String level;          // e.g. WARNING, ERROR
+  String level;         // To be displayed on LCD, e.g. WARNING, ERROR
   String expected;      // expected value or state that was detected when the error occurred. This might refer to a sensor reading, a status code, or any other piece of data relevant to the error.
   String actual;        // actual value that is read
-  bool asserted;        // true (active) or false (not active)
+  bool asserted;        // TRUE (active) or FALSE (not active)
+  bool persistence;     // TRUE (persistent, has to be explicitly deactivated) or FALSE (deactivated automatically after )
 };
 
 
 enum Error errors[] {
-	// ERROR CODE, 		        LEVEL       EXPECTED, 	    ACTUAL,             Asserted?
-    {VALVE_CONTENTION,          "ERROR"     "ValveOK",      "Valvecontention",  false},
-    {COLD_CATHODE_FAILURE,      "ERROR"     "972Ok",        "ColdCathodeFail",  false},
-    {MICROPIRANI_FAILURE,       "ERROR"     "972Ok",        "MicroPiraniFail",  false},
-    {UNEXPECTED_PRESSURE_ERROR, "WARNING"   "1.01E3",       "",                 false},
-    {SAFETY_RELAY_ERROR,        "ERROR"     "CLOSED",       "OPEN",         true},
-    {ARGON_GATE_VALVE_ERROR,    "ERROR"     "ARGOFF",       "ACTUAL",       true},
-    {SAFETY_RELAY_ERROR,        "ERROR"     "Expected",     "ACTUAL",       true},
-    {ARGON_GATE_VALVE_ERROR,    "ERROR"     "Expected",     "ACTUAL",       true},
-    {TURBO_GATE_VALVE_ERROR,    "ERROR"     "Expected",     "ACTUAL",       true},
-    {VENT_VALVE_OPEN_ERROR,     "ERROR"     "Expected",     "ACTUAL",       true},
-    {PRESSURE_NACK_ERROR,       "ERROR"     "Expected",     "ACTUAL",       true},
-    {PRESSURE_DOSE_WARNING,     "WARNING"   "Expected",     "ACTUAL",       false},
-    {TURBO_GATE_VALVE_WARNING,  "WARNING"   "Expected",     "ACTUAL",       false},
-    {TURBO_ROTOR_ON_WARNING,    "WARNING",  "ACTUAL",       false},
-    {UNSAFE_FOR_HV_WARNING,     "WARNING",  "ACTUAL",       false}
+	// ERROR CODE, 		        LEVEL       EXPECTED, 	    ACTUAL,             Asserted    Persistent
+    {VALVE_CONTENTION,          "ERROR"     "ValveOK",      "Valvecontention",  false,      true},
+    {COLD_CATHODE_FAILURE,      "ERROR"     "972Ok",        "ColdCathodeFail",  false,      true},
+    {MICROPIRANI_FAILURE,       "ERROR"     "972Ok",        "MicroPiraniFail",  false,      true},
+    {UNEXPECTED_PRESSURE_ERROR, "WARNING"   "1.01E3",       "",                 false,      true},
+    {SAFETY_RELAY_ERROR,        "ERROR"     "CLOSED",       "OPEN",             false,      true},
+    {ARGON_GATE_VALVE_ERROR,    "ERROR"     "ArgGateOK",    "ArgGateErr",       false,      true},
+    {SAFETY_RELAY_ERROR,        "ERROR"     "Expected",     "ACTUAL",           false,      true},
+    {ARGON_GATE_VALVE_ERROR,    "ERROR"     "Expected",     "ACTUAL",           false,      true},
+    {TURBO_GATE_VALVE_ERROR,    "ERROR"     "Expected",     "ACTUAL",           false,      true},
+    {VENT_VALVE_OPEN_ERROR,     "ERROR"     "Expected",     "ACTUAL",           false,      true},
+    {PRESSURE_NACK_ERROR,       "ERROR"     "Expected",     "ACTUAL",           false,      true},
+    {PRESSURE_DOSE_WARNING,     "WARNING"   "Expected",     "ACTUAL",           false,      false},
+    {TURBO_GATE_VALVE_WARNING,  "WARNING"   "Expected",     "ACTUAL",           false,      false},
+    {TURBO_ROTOR_ON_WARNING,    "WARNING",  "Expected",     "ACTUAL",           false,      false},
+    {UNSAFE_FOR_HV_WARNING,     "WARNING",  "Expected",     "ACTUAL",           false,      false}
 }
 
 unsigned int currentErrorIndex = 0;
@@ -119,19 +122,13 @@ void setup() {
     // TODO: Pressure Sensor configuration
     //      set units to mbar
     //      set user tag
+    configurePressureSensor();
 
     // check if initial pressure is approximately 1 ATM
-    double initialPressure = sensor.requestPressure(); // TODO: add default measureType to this function in 972b driver, won't work as is
-    if (abs(initialPressure - EXPECTED_AMBIENT_PRESSURE) <= AMBIENT_PRESSURE_THRESHOLD) {
-        // initial pressure reading is within tolerance of expected value
-    } else {
-        // Pressure reading is not at ambient,
-        // Raise UNEXPECTED_PRESSURE_ERROR
-        UNEXPECTED_PRESSURE_ERROR.asserted = true;
-        UNEXPECTED_PRESSURE_ERROR.actual = initialPressure;
-    }
+    verifyInitialPressure();
 
     //      Verify safety relay direction == "BELOW"
+    
     //      Command safety relay setpoint to be "1.00E-4" mbar
     //      Verify safety relay is enabled
     //      Verify TURBO_ROTOR_ON is not HIGH if PUMPS_POWER_ON is LOW
@@ -141,10 +138,10 @@ void setup() {
 }
 
 void loop() {
-    // vtrx_btest_020();    // Test serial reading from pressure gauge using arduino at 1 atm
-    // vtrx_btest_040();    // Test pressure safety relays reading from pressure gauge at 1 atm
     updateLCD();
     normalOperation();
+    // vtrx_btest_020();
+    // vtrx_btest_040();
 }
 
 void normalOperation() {
@@ -243,35 +240,67 @@ SwitchStates readSystemSwitchStates()() {
     return states;
 }
 
-void checkValveConfiguration(const SwitchStates& states) {
+/**
+*   Verifies that gate valves are reading either OPEN or CLOSED, 
+*   and not both simultaneously
+*/
+void checkForValveContention(const SwitchStates& states) {
     // Check for Argon Gate Valve contention
     if (states.argonGateValveClosed == HIGH && states.argonGateValveOpen == HIGH) {
         // Argon gate valve error: both pins are HIGH simultaneously
-        raiseError(VALVE_CONTENTION, "BOTH_HIGH");
-        Serial.println("ARGON_GATE_VALVE_ERROR: Both CLOSED and OPEN pins are HIGH");
+        VALVE_CONTENTION_ERROR.asserted = true;
+        ARGON_GATE_VALVE_ERROR.asserted = true;
+        Serial.println("ARGON_GATE_VALVE_CONTENTION: Both CLOSED and OPEN pins are HIGH");
+        // Continue on
+    } else {
+        VALVE_CONTENTION_ERROR.asserted = false;
+        ARGON_GATE_VALVE_ERROR.asserted = false;
+        Serial.println("ARGON_GATE_VALVE_CONTENTION_CHECK: OK");
     }
 
     // Check for Turbo Gate Valve contention
     if (states.turboGateValveOpen == HIGH && states.turboGateValveClosed == HIGH) {
         // Turbo gate valve error: both pins are HIGH simultaneously
-        updateErrorActualValue(TURBO_GATE_VALVE_ERROR, "BOTH_HIGH");
-        Serial.println("TURBO_GATE_VALVE_ERROR: Both CLOSED and OPEN pins are HIGH");
+        VALVE_CONTENTION_ERROR.asserted = true;
+        TURBO_GATE_VALUE_ERROR.asserted = true;
+        Serial.println("TURBO_GATE_VALVE_CONTENTION: Both CLOSED and OPEN pins are HIGH");
+    } else {
+        VALVE_CONTENTION_ERROR.asserted = false;
+        TURBO_GATE_VALVE_ERROR.asserted = false;
+        Serial.println("TURBO_GATE_VALVE_CONTENTION_CHECK: OK");
     }
+}
+
+/**
+* Performs a simple check to validate whether the chamber is at atmospheric pressure or not.
+* Utilizes a 10% threshold.
+*/
+void verifyInitialPressure() {
+    double initialPressure = sensor.requestPressure(); // TODO: add default measureType to this function in 972b driver, currently won't work as portrayed
+    if (abs(initialPressure - EXPECTED_AMBIENT_PRESSURE) <= AMBIENT_PRESSURE_THRESHOLD) {
+        // initial pressure reading is within tolerance of expected value
+        UNEXPECTED_PRESSURE_ERROR.asserted = false;
+        Serial.print("Initial pressure reading: ");
+        Serial.print(initialPressure);
+        Serial.println("[mbar]");
+    } else {
+        // Pressure reading is not at ambient,
+        // Raise UNEXPECTED_PRESSURE_ERROR
+        UNEXPECTED_PRESSURE_ERROR.asserted = true;
+        UNEXPECTED_PRESSURE_ERROR.actual = initialPressure;
+        Serial.print("WARNING: Unexpected initial pressure reading: ");
+        Serial.print(initialPressure);
+        Serial.println("[mbar]");
+    }
+    return;
 }
 
 void sendDataToLabVIEW() {
     // This can live outside the loop() function for better code organization
 }
 
-void updateLCD(const String &message) {
-    lcd.clear();
-    lcd.print(message);
-    delay(2000); // Display each message for 2 seconds
-}
-
 void startupMsg() {
-    updateLCD("VTRX-220 v.1.0");  // display firmware version
-    updateLCD("startup check.."); // transition msg
+    
 }
 
 // TODO: 
