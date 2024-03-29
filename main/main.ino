@@ -17,10 +17,10 @@ const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // LCD pins
 /**
 *	System constants
 **/
-#define EXPECTED_AMBIENT_PRESSURE  1013     // Nominal ambient pressure  [millibar]
-#define AMBIENT_PRESSURE_THRESHOLD 101      // 10% threshold for ambient [millibar]
-#define PRESSURE_GAUGE_DEFAULT_ADDR "253"   // Default 972b device address
-#define PRESSURE_READING_RETRY_LIMIT 3      // Attempts allowed to request pressure reading before raising error
+#define EXPECTED_AMBIENT_PRESSURE       1013     // Nominal ambient pressure        [millibar]
+#define AMBIENT_PRESSURE_TOLERANCE      101      // 10% tolerance level for ambient [millibar]
+#define PRESSURE_GAUGE_DEFAULT_ADDR     "253"   // Default 972b device address
+#define PRESSURE_READING_RETRY_LIMIT    3      // Attempts allowed to request pressure reading before raising error
 
 
 /**
@@ -63,7 +63,7 @@ struct SwitchStates {
 **/ 
 struct Error {
   ErrorCode code;       // Name of error
-  String type;          // e.g. WARNING, ERROR
+  String level;          // e.g. WARNING, ERROR
   String expected;      // expected value or state that was detected when the error occurred. This might refer to a sensor reading, a status code, or any other piece of data relevant to the error.
   String actual;        // actual value that is read
   bool asserted;        // true (active) or false (not active)
@@ -71,22 +71,22 @@ struct Error {
 
 
 enum Error errors[] {
-	// ERROR CODE, 		        EXPECTED, 	    ACTUAL,             STATUS      is_PERSISTENT
-    {VALVE_CONTENTION,          "ValveOK",      "Valvecontention",  true},
-    {COLD_CATHODE_FAILURE,      "972Ok",        "ColdCathodeFail",  true},
-    {MICROPIRANI_FAILURE,       "972Ok",        "MicroPiraniFail",  true},
-    {UNEXPECTED_PRESSURE_ERROR, "1.01E3",       "",                 false},
-    {SAFETY_RELAY_ERROR,        "CLOSED",       "OPEN",         true},
-    {ARGON_GATE_VALVE_ERROR,    "ARGOFF",       "ACTUAL",       true},
-    {SAFETY_RELAY_ERROR,        "Expected",     "ACTUAL",       true},
-    {ARGON_GATE_VALVE_ERROR,    "Expected",     "ACTUAL",       true},
-    {TURBO_GATE_VALVE_ERROR,    "Expected",     "ACTUAL",       true},
-    {VENT_VALVE_OPEN_ERROR,     "Expected",     "ACTUAL",       true},
-    {PRESSURE_NACK_ERROR,       "Expected",     "ACTUAL",       true},
-    {PRESSURE_DOSE_WARNING,     "Expected",     "ACTUAL",       false},
-    {TURBO_GATE_VALVE_WARNING,  "Expected",     "ACTUAL",       false},
-    {TURBO_ROTOR_ON_WARNING,    "Expected",     "ACTUAL",       false},
-    {UNSAFE_FOR_HV_WARNING,     "Expected",     "ACTUAL",       false}
+	// ERROR CODE, 		        LEVEL       EXPECTED, 	    ACTUAL,             Asserted?
+    {VALVE_CONTENTION,          "ERROR"     "ValveOK",      "Valvecontention",  false},
+    {COLD_CATHODE_FAILURE,      "ERROR"     "972Ok",        "ColdCathodeFail",  false},
+    {MICROPIRANI_FAILURE,       "ERROR"     "972Ok",        "MicroPiraniFail",  false},
+    {UNEXPECTED_PRESSURE_ERROR, "WARNING"   "1.01E3",       "",                 false},
+    {SAFETY_RELAY_ERROR,        "ERROR"     "CLOSED",       "OPEN",         true},
+    {ARGON_GATE_VALVE_ERROR,    "ERROR"     "ARGOFF",       "ACTUAL",       true},
+    {SAFETY_RELAY_ERROR,        "ERROR"     "Expected",     "ACTUAL",       true},
+    {ARGON_GATE_VALVE_ERROR,    "ERROR"     "Expected",     "ACTUAL",       true},
+    {TURBO_GATE_VALVE_ERROR,    "ERROR"     "Expected",     "ACTUAL",       true},
+    {VENT_VALVE_OPEN_ERROR,     "ERROR"     "Expected",     "ACTUAL",       true},
+    {PRESSURE_NACK_ERROR,       "ERROR"     "Expected",     "ACTUAL",       true},
+    {PRESSURE_DOSE_WARNING,     "WARNING"   "Expected",     "ACTUAL",       false},
+    {TURBO_GATE_VALVE_WARNING,  "WARNING"   "Expected",     "ACTUAL",       false},
+    {TURBO_ROTOR_ON_WARNING,    "WARNING",  "ACTUAL",       false},
+    {UNSAFE_FOR_HV_WARNING,     "WARNING",  "ACTUAL",       false}
 }
 
 unsigned int currentErrorIndex = 0;
@@ -114,12 +114,23 @@ void setup() {
 
     startupMsg();
 
-    // Read system switch states
+    // TODO: Read system switch states
 
-    // Pressure Sensor configuration
+    // TODO: Pressure Sensor configuration
     //      set units to mbar
     //      set user tag
-    //      check if initial pressure is approximately EXPECTED_AMBIENT_PRESSURE
+
+    // check if initial pressure is approximately 1 ATM
+    double initialPressure = sensor.requestPressure(); // TODO: add default measureType to this function in 972b driver, won't work as is
+    if (abs(initialPressure - EXPECTED_AMBIENT_PRESSURE) <= AMBIENT_PRESSURE_THRESHOLD) {
+        // initial pressure reading is within tolerance of expected value
+    } else {
+        // Pressure reading is not at ambient,
+        // Raise UNEXPECTED_PRESSURE_ERROR
+        UNEXPECTED_PRESSURE_ERROR.asserted = true;
+        UNEXPECTED_PRESSURE_ERROR.actual = initialPressure;
+    }
+
     //      Verify safety relay direction == "BELOW"
     //      Command safety relay setpoint to be "1.00E-4" mbar
     //      Verify safety relay is enabled
