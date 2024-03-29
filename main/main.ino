@@ -20,16 +20,16 @@ const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // LCD pins
 #define EXPECTED_AMBIENT_PRESSURE  1013     // Nominal ambient pressure  [millibar]
 #define AMBIENT_PRESSURE_THRESHOLD 101      // 10% threshold for ambient [millibar]
 #define PRESSURE_GAUGE_DEFAULT_ADDR "253"   // Default 972b device address
-#define PRESSURE_READING_RETRY_LIMIT 5      // Attempts allowed to request pressure reading before raising error
+#define PRESSURE_READING_RETRY_LIMIT 3      // Attempts allowed to request pressure reading before raising error
 
 
 /**
 *   System State representation
 */
 enum SystemState {   
-  ERROR_STATE,     
+  ERROR,     
   STANDARD_PUMP_DOWN,
-  HIGH_VACUUM,
+  HVAC,
   ARGON_PUMP_DOWN,
   REMOTE_CONTROL,
 };
@@ -62,19 +62,20 @@ struct SwitchStates {
  *                    Temporary errors will dissapear after 
 **/ 
 struct Error {
-  ErrorCode code;       // type of error
+  ErrorCode code;       // Name of error
+  String type;          // e.g. WARNING, ERROR
   String expected;      // expected value or state that was detected when the error occurred. This might refer to a sensor reading, a status code, or any other piece of data relevant to the error.
   String actual;        // actual value that is read
-  bool isPersistent;    // true for persistent, false for temporary
+  bool asserted;        // true (active) or false (not active)
 };
 
 
 enum Error errors[] {
-	// ERROR CODE, 		        EXPECTED, 	    ACTUAL,         is_PERSISTENT
-    {VALVE_CONTENTION,          "VlvOK",        "VlvFAIL",      true},
-    {COLD_CATHODE_FAILURE,      "972Ok",        "972FAIL",      true},
-    {MICROPIRANI_FAILURE,       "972Ok",        "972FAIL",      true},
-    {UNEXPECTED_PRESSURE_ERROR, "1.01E3",       "",             false},
+	// ERROR CODE, 		        EXPECTED, 	    ACTUAL,             STATUS      is_PERSISTENT
+    {VALVE_CONTENTION,          "ValveOK",      "Valvecontention",  true},
+    {COLD_CATHODE_FAILURE,      "972Ok",        "ColdCathodeFail",  true},
+    {MICROPIRANI_FAILURE,       "972Ok",        "MicroPiraniFail",  true},
+    {UNEXPECTED_PRESSURE_ERROR, "1.01E3",       "",                 false},
     {SAFETY_RELAY_ERROR,        "CLOSED",       "OPEN",         true},
     {ARGON_GATE_VALVE_ERROR,    "ARGOFF",       "ACTUAL",       true},
     {SAFETY_RELAY_ERROR,        "Expected",     "ACTUAL",       true},
@@ -97,7 +98,7 @@ PressureTransducer sensor(PRESSURE_GAUGE_DEFAULT_ADDR, Serial2); // Initialize t
 void setup() {
     lcd.begin(20, 4); // Set up the LCD's number of columns and rows
     
-    // Initialize all status pins as inputs
+    // Initialize all switch status pins as inputs
     pinMode(PUMPS_POWER_ON_PIN, INPUT);
     pinMode(TURBO_ROTOR_ON_PIN, INPUT);
     pinMode(TURBO_VENT_OPEN_PIN, INPUT);
@@ -112,38 +113,73 @@ void setup() {
     Serial2.begin(9600); // Initialize the serial to Pressure gauge (RS485)
 
     startupMsg();
+
+    // Read system switch states
+
+    // Pressure Sensor configuration
+    //      set units to mbar
+    //      set user tag
+    //      check if initial pressure is approximately EXPECTED_AMBIENT_PRESSURE
+    //      Verify safety relay direction == "BELOW"
+    //      Command safety relay setpoint to be "1.00E-4" mbar
+    //      Verify safety relay is enabled
+    //      Verify TURBO_ROTOR_ON is not HIGH if PUMPS_POWER_ON is LOW
+    //          if it is, raise TURBO_ROTOR_ON_WARNING
+    //      Print message: Setup Complete
+    //      Verify errorCount == 0
 }
 
 void loop() {
     // vtrx_btest_020();    // Test serial reading from pressure gauge using arduino at 1 atm
     // vtrx_btest_040();    // Test pressure safety relays reading from pressure gauge at 1 atm
-    cycleThroughErrorsLCD();
+    updateLCD();
     normalOperation();
 }
 
 void normalOperation() {
-    // Print state to LCD and log serial: PUMP_DOWN
+    
 
     // Read system switch states
-    SwitchStates currentStates = readSwitchStates();
+    SwitchStates currentStates = readSystemSwitchStates();
 
     // Verify 972b status
         // If status == "O" (OKAY), continue on.
-        // If status == "C", raise COLD_CATHODE_FAILURE, and loop back up to readSwitchStates()
+        // If status == "C", raise COLD_CATHODE_FAILURE, and exit normalOperation()
         // If status == "R", raise PRESSURE_DOSE_WARNING, and continue
-        // If status == "M", raise MICROPIRANI_FAILURE, and loop back up to readSwitchStates()
-    
+        // If status == "M", raise MICROPIRANI_FAILURE, and exit normalOperation()
+    sensor.sendCommand("T?"); // send command to query device status
+    String status = sensor.readStatus();
+    if (status == "O") {
+        // Status "O" means OKAY, proceed with normal operations
+        // TODO: Clear any active COLD_CATHODE_FAILURE or  MICROPIRANI_FAILURE
+        // Continue the operation as this is not a critical error
+    } else if (status == "R") {
+        // Status "R" indicates the pressure dose has been exceeded
+        Serial.println("Warning: Pressure Dose Limit Exceeded");
+        // TODO: raise PRESSURE_DOSE_WARNING
+        // Continue the operation as this is not a critical error    
+    } else if (status == "C") {
+        // Status "C" indicates a cold cathode failure
+        Serial.println("Error: Cold Cathode Failure");
+        // TODO: raise COLD_CATHODE_FAILURE
+        return; // Exit normalOperation to prevent further actions
+    } else if (status == "M") {
+        // Status "M" indicates a Micropirani failure
+        Serial.println("Error: Micropirani Failure");
+        return; // Exit normalOperation to prevent further actions
+    }
+
     // Verify Pressure sensor output units: mbar
         // If response == "MBAR", continue on.
-        // Else, loop back up to readSwitchStates()
+        // Else, loop back up to readSystemSwitchStates()()
 
     // Verify pressure safety relay is CLOSED
-        // If SP1 is OPEN, raise PRESSURE_NACK_ERROR, and loop back up to readSwitchStates()
+        // If SP1 is OPEN, raise PRESSURE_NACK_ERROR, and loop back up to readSystemSwitchStates()()
         // If closed, continue on.
 
     // Request initial pressure
         // If NACK, retry until a successful reading or PRESSURE_READING_RETRY_LIMIT reached
-        // If PRESSURE_READING_RETRY_LIMIT reached, raise PRESSURE_NACK_ERROR and loop back to readSwitchStates()
+        // If PRESSURE_READING_RETRY_LIMIT reached, raise PRESSURE_NACK_ERROR and loop back to readSystemSwitchStates()()
         // If successful reading, continue on
 
     // Verify pressure is within range for 1 atm
@@ -156,22 +192,10 @@ void normalOperation() {
     // Raise the TURBO_GATE_VALUE_ERROR if TURBO_GATE_VALVE_OPEN_PIN and TURBO_GATE_VALVE_CLOSED_PIN both HIGH at the same time
     // 
 
-    /***     Begin Pump-down monitoring      ***/ 
     delay(1);
-
-    // Read peripheral system switches
-    SwitchStates currentStates = readSwitchStates();
-
-    // Validate valve configuration for pump down.
-    // This function throws errors for valve contention, 
-    // and warnings if the turbo or vent valves are not 
-    // configured properly.
-    checkValveConfiguration(currentStates);
-
-
 }
 
-void cycleThroughErrorsLCD() {
+void updateLCD() {
     unsigned long currentTime = millis();
 
     if (currentTime - lastErrorDisplayTime >= 2000) { // Change errors every 2 seconds
@@ -188,9 +212,13 @@ void cycleThroughErrorsLCD() {
     }
 }
 
-// Function to read current status of panel switches
-// Returns the current state of all input pins
-SwitchStates readSwitchStates() {
+/**
+ * Reads the current state of each system switch and stores them in a SwitchStates struct.
+ * Utilizes digitalRead for each pin to get the current state.
+ * 
+ * @return SwitchStates A struct containing the states of all system switches.
+ */
+SwitchStates readSystemSwitchStates()() {
     SwitchStates states;
     states.pumpsPowerOn = digitalRead(PUMPS_POWER_ON_PIN);
     states.turboRotorOn = digitalRead(TURBO_ROTOR_ON_PIN);
@@ -200,6 +228,7 @@ SwitchStates readSwitchStates() {
     states.turboGateValveClosed = digitalRead(TURBO_GATE_VALVE_CLOSED_PIN);
     states.argonGateValveClosed = digitalRead(ARGON_GATE_VALVE_CLOSED_PIN);
     states.argonGateValveOpen = digitalRead(ARGON_GATE_VALVE_OPEN_PIN);
+
     return states;
 }
 
@@ -207,7 +236,7 @@ void checkValveConfiguration(const SwitchStates& states) {
     // Check for Argon Gate Valve contention
     if (states.argonGateValveClosed == HIGH && states.argonGateValveOpen == HIGH) {
         // Argon gate valve error: both pins are HIGH simultaneously
-        throwError(ARGON_GATE_VALVE_ERROR, "BOTH_HIGH");
+        raiseError(VALVE_CONTENTION, "BOTH_HIGH");
         Serial.println("ARGON_GATE_VALVE_ERROR: Both CLOSED and OPEN pins are HIGH");
     }
 
