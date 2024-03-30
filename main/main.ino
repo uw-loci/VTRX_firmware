@@ -12,7 +12,7 @@
 #define TURBO_GATE_VALVE_CLOSED_PIN     33
 #define ARGON_GATE_VALVE_CLOSED_PIN     32
 #define ARGON_GATE_VALVE_OPEN_PIN       31
-const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // LCD pins
+const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // 20x4 LCD pin connections
 
 /**
 *	System constants
@@ -22,7 +22,6 @@ const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // LCD pins
 #define PRESSURE_GAUGE_DEFAULT_ADDR     "253"   // Default 972b device address
 #define PRESSURE_READING_RETRY_LIMIT    3       // Attempts allowed before error. TODO: this should probably live in 972b driver
 #define AUTO_RESET_TIMEOUT              600000  // Time elapsed limit for non-persistent warnings   [milliseconds]
-
 
 /**
 *   System State representation
@@ -119,9 +118,11 @@ void setup() {
 
     // TODO: Read system switch states
 
-    // TODO: Pressure Sensor configuration
-    //      set units to mbar
-    //      set user tag
+    /** Pressure Sensor configuration
+    *      set units to mbar
+    *      set user tag
+    *      set and enable HV safety relay
+    */
     configurePressureSensor();
 
     // check if initial pressure is approximately 1 ATM
@@ -146,7 +147,6 @@ void loop() {
 
 void normalOperation() {
     
-
     // Read system switch states
     SwitchStates currentStates = readSystemSwitchStates();
 
@@ -346,9 +346,6 @@ void removeError(ErrorCode error) {
             return;
         }
     }
-}
-
-void selfChecks() {
 }
 
 void vtrx_btest_020() {
