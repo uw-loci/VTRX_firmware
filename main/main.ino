@@ -295,6 +295,12 @@ void verifyInitialPressure() {
     return;
 }
 
+void configurePressureSensor() {
+    sensor.setPressureUnits("MBAR");
+    sensor.setUserTag("Linectra1");
+    sensor.setupSetpoint("");
+}
+
 void sendDataToLabVIEW() {
     // This can live outside the loop() function for better code organization
 }
