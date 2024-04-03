@@ -12,7 +12,7 @@
 #define TURBO_GATE_VALVE_CLOSED_PIN     33
 #define ARGON_GATE_VALVE_CLOSED_PIN     32
 #define ARGON_GATE_VALVE_OPEN_PIN       31
-const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // 20x4 LCD pin connections
+const int rs = 12, en = 10, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // 20x4 LCD pin connections
 
 /**
 *	System constants
