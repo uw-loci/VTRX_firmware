@@ -179,15 +179,15 @@ void normalOperation() {
 
     // Verify Pressure sensor output units: mbar
         // If response == "MBAR", continue on.
-        // Else, loop back up to readSystemSwitchStates()()
+        // Else, loop back up to readSystemSwitchStates()
 
     // Verify pressure safety relay is CLOSED
-        // If SP1 is OPEN, raise PRESSURE_NACK_ERROR, and loop back up to readSystemSwitchStates()()
+        // If SP1 is OPEN, raise PRESSURE_NACK_ERROR, and loop back up to readSystemSwitchStates()
         // If closed, continue on.
 
     // Request initial pressure
         // If NACK, retry until a successful reading or PRESSURE_READING_RETRY_LIMIT reached
-        // If PRESSURE_READING_RETRY_LIMIT reached, raise PRESSURE_NACK_ERROR and loop back to readSystemSwitchStates()()
+        // If PRESSURE_READING_RETRY_LIMIT reached, raise PRESSURE_NACK_ERROR and loop back to readSystemSwitchStates()
         // If successful reading, continue on
 
     // Verify pressure is within range for 1 atm
@@ -226,7 +226,7 @@ void updateLCD() {
  * 
  * @return SwitchStates A struct containing the states of all system switches.
  */
-SwitchStates readSystemSwitchStates()() {
+SwitchStates readSystemSwitchStates() {
     SwitchStates states;
     states.pumpsPowerOn = digitalRead(PUMPS_POWER_ON_PIN);
     states.turboRotorOn = digitalRead(TURBO_ROTOR_ON_PIN);
