@@ -34,6 +34,11 @@ enum SystemState {
   REMOTE_CONTROL,
 };
 
+enum OperationResult {
+    SUCCESS = 0, 
+    FAILURE = 1
+};
+
 /**
  *    This structure contains the switch states of each input pin.
  *    They are initialized as integers rather than boolean states, because they are
@@ -276,7 +281,7 @@ void checkForValveContention(const SwitchStates& states) {
 * Utilizes a 10% threshold.
 */
 void verifyInitialPressure() {
-    double initialPressure = sensor.requestPressure(); // TODO: add default measureType to this function in 972b driver, currently won't work as portrayed
+    double initialPressure = sensor.requestPressure(); // TODO: add default measureType to this function in 972b driver, currently this won't work as portrayed
     if (abs(initialPressure - EXPECTED_AMBIENT_PRESSURE) <= AMBIENT_PRESSURE_THRESHOLD) {
         // initial pressure reading is within tolerance of expected value
         UNEXPECTED_PRESSURE_ERROR.asserted = false;
@@ -285,7 +290,7 @@ void verifyInitialPressure() {
         Serial.println("[mbar]");
     } else {
         // Pressure reading is not at ambient,
-        // Raise UNEXPECTED_PRESSURE_ERROR
+        // raise UNEXPECTED_PRESSURE_ERROR
         UNEXPECTED_PRESSURE_ERROR.asserted = true;
         UNEXPECTED_PRESSURE_ERROR.actual = initialPressure;
         Serial.print("WARNING: Unexpected initial pressure reading: ");
@@ -296,9 +301,21 @@ void verifyInitialPressure() {
 }
 
 void configurePressureSensor() {
-    sensor.setPressureUnits("MBAR");
-    sensor.setUserTag("Linectra1");
-    sensor.setupSetpoint("");
+    //sensor.setUserTag("Linectra1");
+    // Set units to MBAR
+    CommandResult response = sensor.setPressureUnits("MBAR");
+
+    if (response.outcome == FAILURE) { // pressure unit configuration failed
+        Serial.println("PRESSURE_RELAY_ERROR: Failed to set pressure units to MBAR");
+        PRESSURE_NACK_ERROR.asserted = true; // raise the error
+        PRESSURE_NACK_ERROR.actual = response.resultStr; // NAK message to print out
+        errorCount++; // Increase the total error count
+    } else { // unit configuration succeeded
+        Serial.println("Pressure units set to MBAR");
+        PRESSURE_NACK_ERROR.asserted = false; // ensure error is de-asserted
+    }
+    
+    //sensor.setupSetpoint("");
 }
 
 void sendDataToLabVIEW() {
