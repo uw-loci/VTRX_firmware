@@ -301,20 +301,47 @@ void verifyInitialPressure() {
 }
 
 void configurePressureSensor() {
-    //sensor.setUserTag("Linectra1");
-    // Set units to MBAR
-    CommandResult response = sensor.setPressureUnits("MBAR");
 
-    if (response.outcome == FAILURE) { // pressure unit configuration failed
+    /*** Set units to MBAR ***/
+    // The result of calling the setPressureUnits function returns 
+    // a structure containing information that is used to set errors
+    // and print to the LCD.
+    CommandResult pressureUnitResponse = sensor.setPressureUnits("MBAR");
+
+    if (pressureUnitResponse.outcome == FAILURE) { // pressure unit configuration failed
         Serial.println("PRESSURE_RELAY_ERROR: Failed to set pressure units to MBAR");
-        PRESSURE_NACK_ERROR.asserted = true; // raise the error
-        PRESSURE_NACK_ERROR.actual = response.resultStr; // NAK message to print out
-        errorCount++; // Increase the total error count
+        if (!PRESSURE_UNIT_ERROR.asserted) { // update only if wasn't already asserted
+            PRESSURE_UNIT_ERROR.asserted = true; // raise the error
+            PRESSURE_UNIT_ERROR.actual = response.resultStr; // NAK message to print out
+            errorCount++; // Increment the total error count (only if new error)
+        }
     } else { // unit configuration succeeded
         Serial.println("Pressure units set to MBAR");
-        PRESSURE_NACK_ERROR.asserted = false; // ensure error is de-asserted
+        PRESSURE_UNIT_ERROR.asserted = false; // ensure error is de-asserted
+        errorCount--; // Decrement the total error count because the error is resolved 
     }
     
+    /*** Set user tag for sensor ***/
+    // The result of calling the setPressureUnits function returns 
+    // a structure containing information that is used to set errors
+    // and print to the LCD.
+    CommandResult userTagResponse = sensor.setUserTag("Linectra1"); 
+
+    if (userTagResponse.outcome == FAILURE) { // user tag configuration failed
+        Serial.println("PRESSURE_RELAY_ERROR: Failed to set user tag");
+        if (!USER_TAG_NACK_ERROR)
+        USER_TAG_NACK_ERROR.asserted = true;
+        PRESSURE_NACK_ERROR.actual = response.resultStr;
+        errorCount++;
+    } else { // user tag configuration succeeded
+        if (USER_TAG_NACK_ERROR.asserted) { // was previously in error state but now succeeded
+            Serial.println("User Tag configured successfully. Error cleared.");
+            USER_TAG_NACK_ERROR.asserted = false; // clear the error
+            errorCount--; // Decrement the total error count (only if previously asserted)
+        }
+        Serial.println("User Tag configured successfully");
+    }
+
     //sensor.setupSetpoint("");
 }
 
