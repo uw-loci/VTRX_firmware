@@ -34,11 +34,6 @@ enum SystemState {
   REMOTE_CONTROL,
 };
 
-enum OperationResult {
-    SUCCESS = 0, 
-    FAILURE = 1
-};
-
 /**
  *    This structure contains the switch states of each input pin.
  *    They are initialized as integers rather than boolean states, because they are
@@ -78,18 +73,19 @@ struct Error {
 
 
 enum Error errors[] {
-	// ERROR CODE, 		        LEVEL       EXPECTED, 	    ACTUAL,             Asserted    Persistent
+	// ERROR CODE, 		        LEVEL       EXPECTED, 	    ACTUAL,             Asserted    Persistent:TODO: delete this
     {VALVE_CONTENTION,          "ERROR"     "ValveOK",      "Valvecontention",  false,      true},
     {COLD_CATHODE_FAILURE,      "ERROR"     "972Ok",        "ColdCathodeFail",  false,      true},
     {MICROPIRANI_FAILURE,       "ERROR"     "972Ok",        "MicroPiraniFail",  false,      true},
     {UNEXPECTED_PRESSURE_ERROR, "WARNING"   "1.01E3",       "",                 false,      true},
     {SAFETY_RELAY_ERROR,        "ERROR"     "CLOSED",       "OPEN",             false,      true},
     {ARGON_GATE_VALVE_ERROR,    "ERROR"     "ArgGateOK",    "ArgGateErr",       false,      true},
-    {SAFETY_RELAY_ERROR,        "ERROR"     "Expected",     "ACTUAL",           false,      true},
-    {ARGON_GATE_VALVE_ERROR,    "ERROR"     "Expected",     "ACTUAL",           false,      true},
     {TURBO_GATE_VALVE_ERROR,    "ERROR"     "Expected",     "ACTUAL",           false,      true},
     {VENT_VALVE_OPEN_ERROR,     "ERROR"     "Expected",     "ACTUAL",           false,      true},
     {PRESSURE_NACK_ERROR,       "ERROR"     "Expected",     "ACTUAL",           false,      true},
+    {PRESSURE_UNIT_ERROR,       "ERROR",    "Expected",     "ACTUAL",           false,      false},
+    {USER_TAG_NACK_ERROR,       "ERROR",    "Expected",     "ACTUAL",           false,      false},
+    {RELAY_NACK_ERROR,          "ERROR",    "Expected",     "ACTUAL",           false,      false}, 
     {PRESSURE_DOSE_WARNING,     "WARNING"   "Expected",     "ACTUAL",           false,      false},
     {TURBO_GATE_VALVE_WARNING,  "WARNING"   "Expected",     "ACTUAL",           false,      false},
     {TURBO_ROTOR_ON_WARNING,    "WARNING",  "Expected",     "ACTUAL",           false,      false},
@@ -121,7 +117,8 @@ void setup() {
 
     startupMsg();
 
-    // TODO: Read system switch states
+    /*** Read system switch states ***/
+    SwitchStates currentStates = readSystemSwitchStates();
 
     /** Pressure Sensor configuration
     *      set units to mbar
@@ -182,32 +179,10 @@ void normalOperation() {
         return; // Exit normalOperation to prevent further actions
     }
 
-    // Verify Pressure sensor output units: mbar
-        // If response == "MBAR", continue on.
-        // Else, loop back up to readSystemSwitchStates()
-
-    // Verify pressure safety relay is CLOSED
-        // If SP1 is OPEN, raise PRESSURE_NACK_ERROR, and loop back up to readSystemSwitchStates()
-        // If closed, continue on.
-
-    // Request initial pressure
-        // If NACK, retry until a successful reading or PRESSURE_READING_RETRY_LIMIT reached
-        // If PRESSURE_READING_RETRY_LIMIT reached, raise PRESSURE_NACK_ERROR and loop back to readSystemSwitchStates()
-        // If successful reading, continue on
-
-    // Verify pressure is within range for 1 atm
-        // If current reading < (EXPECTED_AMBIENT_PRESSURE - AMBIENT_PRESSURE_THRESHOLD)
-
-    // Log pressure on LCD
-
-    // checkValveConfiguration()
-    // Raise the ARGON_GATE_VALVE_ERROR if ARGON_GATE_VALVE_CLOSED_PIN and ARGON_GATE_VALVE_OPEN_PIN() both HIGH at the same time
-    // Raise the TURBO_GATE_VALUE_ERROR if TURBO_GATE_VALVE_OPEN_PIN and TURBO_GATE_VALVE_CLOSED_PIN both HIGH at the same time
-    // 
-
     delay(1);
 }
 
+// TODO: implement this
 void updateLCD() {
     unsigned long currentTime = millis();
 
@@ -300,15 +275,17 @@ void verifyInitialPressure() {
     return;
 }
 
+// In progress
 void configurePressureSensor() {
 
+    /*** Print out device info ***/
+
+    
     /*** Set units to MBAR ***/
-    // The result of calling the setPressureUnits function returns 
-    // a structure containing information that is used to set errors
-    // and print to the LCD.
     CommandResult pressureUnitResponse = sensor.setPressureUnits("MBAR");
 
-    if (pressureUnitResponse.outcome == FAILURE) { // pressure unit configuration failed
+    // Parse response
+    if (pressureUnitResponse.outcome == false) { // pressure unit configuration failed
         Serial.println("PRESSURE_RELAY_ERROR: Failed to set pressure units to MBAR");
         if (!PRESSURE_UNIT_ERROR.asserted) { // update only if wasn't already asserted
             PRESSURE_UNIT_ERROR.asserted = true; // raise the error
@@ -317,38 +294,62 @@ void configurePressureSensor() {
         }
     } else { // unit configuration succeeded
         Serial.println("Pressure units set to MBAR");
-        PRESSURE_UNIT_ERROR.asserted = false; // ensure error is de-asserted
-        errorCount--; // Decrement the total error count because the error is resolved 
+        if (PRESSURE_UNIT_ERROR.asserted) { // Error was raised previously, but doesn't exist anymore
+            PRESSURE_UNIT_ERROR.asserted = false; // de-assert error
+            errorCount--; // Decrement the total error count because the error is resolved 
+        } else {
+            Serial.println("User Tag configured successfully");
+        }
     }
     
     /*** Set user tag for sensor ***/
-    // The result of calling the setPressureUnits function returns 
-    // a structure containing information that is used to set errors
-    // and print to the LCD.
-    CommandResult userTagResponse = sensor.setUserTag("Linectra1"); 
+    CommandResult userTagResponse = sensor.setUserTag("LINECTRA1"); 
 
-    if (userTagResponse.outcome == FAILURE) { // user tag configuration failed
+    // Parse response
+    if (userTagResponse.outcome == false) { // user tag configuration failed
         Serial.println("PRESSURE_RELAY_ERROR: Failed to set user tag");
-        if (!USER_TAG_NACK_ERROR)
-        USER_TAG_NACK_ERROR.asserted = true;
-        PRESSURE_NACK_ERROR.actual = response.resultStr;
-        errorCount++;
+        if (!USER_TAG_NACK_ERROR.asserted){ // update only if wasn't already asserted
+            USER_TAG_NACK_ERROR.asserted = true;
+            USER_TAG_ERROR.actual = response.resultStr;
+            errorCount++;
+        }
     } else { // user tag configuration succeeded
+        Serial.println("Pressure sensor ID tag set to: LINECTRA1");
         if (USER_TAG_NACK_ERROR.asserted) { // was previously in error state but now succeeded
-            Serial.println("User Tag configured successfully. Error cleared.");
             USER_TAG_NACK_ERROR.asserted = false; // clear the error
             errorCount--; // Decrement the total error count (only if previously asserted)
         }
         Serial.println("User Tag configured successfully");
     }
 
-    //sensor.setupSetpoint("");
+    /*** Set Safety Relay Configuration  ***/
+    CommandResult outputConfig = sensor.setupSetpoint("1E-4", "BELOW", "1.1E0", "ON"); // (pressure value, direction, hysteresis, enable status)
+
+    // Parse response
+    if (relayConfig.outcome == false) { // user tag configuration failed
+        Serial.println("PRESSURE_RELAY_ERROR: Failed to configure safety relay");
+        if (!SAFETY_RELAY_ERROR.asserted){ // update only if wasn't already asserted
+            SAFETY_RELAY_ERROR.asserted = true;
+            SAFETY_RELAY_ERROR.actual = response.resultStr;
+            errorCount++;
+        }
+    } 
+    else { // user tag configuration succeeded
+        Serial.println("Pressure sensor safety relay configured");
+        if (SAFETY_RELAY_ERROR.asserted) { // was previously in error state but now succeeded
+            SAFETY_RELAY_ERROR.asserted = false; // clear the error
+            errorCount--; // Decrement the total error count (only if previously asserted)
+        }
+        Serial.println("Pressure sensor safety relay configured successfully");
+    }
 }
 
+// TODO
 void sendDataToLabVIEW() {
     // This can live outside the loop() function for better code organization
 }
 
+// TODO
 void startupMsg() {
     
 }
@@ -367,6 +368,7 @@ void displayPressureReading() {
     lcd.print("]");
 }
 
+// TODO: remove
 void updateError(ErrorCode errorCode, String expected, String actual, bool persistence) {
     for (unsigned int i = 0; i < errorCount; i++) {
         if (errors[i].code == errorCode) {
@@ -384,6 +386,7 @@ void updateError(ErrorCode errorCode, String expected, String actual, bool persi
     }
 }
 
+// TODO: remove
 void removeError(ErrorCode error) {
     // Simplified error removal logic
     for (unsigned int i = 0; i < errorCount; i++) { 
@@ -398,8 +401,10 @@ void removeError(ErrorCode error) {
     }
 }
 
+// TODO
 void vtrx_btest_020() {
 }
 
+// TODO
 void vtrx_btest_040() {
 }
