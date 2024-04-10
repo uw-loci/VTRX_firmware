@@ -83,6 +83,7 @@ enum Error errors[] {
     {TURBO_GATE_VALVE_ERROR,    "ERROR"     "Expected",     "ACTUAL",           false,      true},
     {VENT_VALVE_OPEN_ERROR,     "ERROR"     "Expected",     "ACTUAL",           false,      true},
     {PRESSURE_NACK_ERROR,       "ERROR"     "Expected",     "ACTUAL",           false,      true},
+    {PRESSURE_SENSE_ERROR,      "ERROR",    "972b OK",      "",                 false,      false},
     {PRESSURE_UNIT_ERROR,       "ERROR",    "Expected",     "ACTUAL",           false,      false},
     {USER_TAG_NACK_ERROR,       "ERROR",    "Expected",     "ACTUAL",           false,      false},
     {RELAY_NACK_ERROR,          "ERROR",    "Expected",     "ACTUAL",           false,      false}, 
@@ -114,28 +115,22 @@ void setup() {
     Serial.begin(9600); // Initialize the serial for programming
     Serial1.begin(9600); // Initialize the serial to LabVIEW
     Serial2.begin(9600); // Initialize the serial to Pressure gauge (RS485)
-
+    
     startupMsg();
+    logPressureSensorInfo(); // Model and firmware version, hours of operation TODO:implement
 
     /*** Read system switch states ***/
     SwitchStates currentStates = readSystemSwitchStates();
+    // TODO: encapsulate this into readSystemSwitchStates()
+    //      Verify TURBO_ROTOR_ON is not HIGH if PUMPS_POWER_ON is LOW
+    //          if it is, raise TURBO_ROTOR_ON_WARNING
 
-    /** Pressure Sensor configuration
-    *      set units to mbar
-    *      set user tag
-    *      set and enable HV safety relay
-    */
+    /*** Pressure Sensor configuration ***/
     configurePressureSensor();
 
     // check if initial pressure is approximately 1 ATM
     verifyInitialPressure();
 
-    //      Verify safety relay direction == "BELOW"
-    
-    //      Command safety relay setpoint to be "1.00E-4" mbar
-    //      Verify safety relay is enabled
-    //      Verify TURBO_ROTOR_ON is not HIGH if PUMPS_POWER_ON is LOW
-    //          if it is, raise TURBO_ROTOR_ON_WARNING
     //      Print message: Setup Complete
     //      Verify errorCount == 0
 }
@@ -278,8 +273,6 @@ void verifyInitialPressure() {
 // In progress
 void configurePressureSensor() {
 
-    /*** Print out device info ***/
-
     
     /*** Set units to MBAR ***/
     CommandResult pressureUnitResponse = sensor.setPressureUnits("MBAR");
@@ -294,7 +287,7 @@ void configurePressureSensor() {
         }
     } else { // unit configuration succeeded
         Serial.println("Pressure units set to MBAR");
-        if (PRESSURE_UNIT_ERROR.asserted) { // Error was raised previously, but doesn't exist anymore
+        if (PRESSURE_UNIT_ERROR.asserted) { // Error was raised previously, but shouldn't exist anymore
             PRESSURE_UNIT_ERROR.asserted = false; // de-assert error
             errorCount--; // Decrement the total error count because the error is resolved 
         } else {
@@ -315,11 +308,32 @@ void configurePressureSensor() {
         }
     } else { // user tag configuration succeeded
         Serial.println("Pressure sensor ID tag set to: LINECTRA1");
-        if (USER_TAG_NACK_ERROR.asserted) { // was previously in error state but now succeeded
+        if (USER_TAG_NACK_ERROR.asserted) { // Error was raised previously, but shouldn't exist anymore
             USER_TAG_NACK_ERROR.asserted = false; // clear the error
             errorCount--; // Decrement the total error count (only if previously asserted)
         }
         Serial.println("User Tag configured successfully");
+    }
+
+    /*** Verify Sensor Status ***/
+    CommandResult currentStatus = sensor.status();
+
+    // Parse response
+    if (currentStatus.outcome == false) { // user tag configuration failed
+        Serial.println("PRESSURE_SENSOR_ERROR: Failed to configure safety relay");
+        if (!SAFETY_RELAY_ERROR.asserted){ // update only if wasn't already asserted
+            SAFETY_RELAY_ERROR.asserted = true;
+            SAFETY_RELAY_ERROR.actual = response.resultStr;
+            errorCount++;
+        }
+    } 
+    else { // user tag configuration succeeded
+        Serial.println("Pressure sensor safety relay configured");
+        if (SAFETY_RELAY_ERROR.asserted) { // was previously in error state but now succeeded
+            SAFETY_RELAY_ERROR.asserted = false; // clear the error
+            errorCount--; // Decrement the total error count (only if previously asserted)
+        }
+        Serial.println("Pressure sensor safety relay configured successfully");
     }
 
     /*** Set Safety Relay Configuration  ***/
