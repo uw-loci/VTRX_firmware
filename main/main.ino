@@ -119,20 +119,25 @@ void setup() {
     startupMsg();
     logPressureSensorInfo(); // Model and firmware version, hours of operation TODO:implement
 
-    /*** Read system switch states ***/
-    SwitchStates currentStates = readSystemSwitchStates();
-    // TODO: encapsulate this into readSystemSwitchStates()
-    //      Verify TURBO_ROTOR_ON is not HIGH if PUMPS_POWER_ON is LOW
-    //          if it is, raise TURBO_ROTOR_ON_WARNING
+    do {
+        /*** Read in system switch states ***/
+        SwitchStates currentStates = readSystemSwitchStates();
 
-    /*** Pressure Sensor configuration ***/
-    configurePressureSensor();
+        checkForValveContention(currentStates);
 
-    // check if initial pressure is approximately 1 ATM
-    verifyInitialPressure();
+        // TODO: encapsulate the following into readSystemSwitchStates()
+        //      Verify TURBO_ROTOR_ON is not HIGH if PUMPS_POWER_ON is LOW
+        //          if it is, raise TURBO_ROTOR_ON_WARNING
 
-    //      Print message: Setup Complete
-    //      Verify errorCount == 0
+        /*** Pressure Sensor configuration ***/
+        configurePressureSensor();
+
+        // check if initial pressure is approximately 1 ATM
+        verifyInitialPressure();
+
+        //      Print message: Setup Complete
+        //      Verify errorCount == 0
+    } while (errorCount != 0);
 }
 
 void loop() {
@@ -146,33 +151,6 @@ void normalOperation() {
     
     // Read system switch states
     SwitchStates currentStates = readSystemSwitchStates();
-
-    // Verify 972b status
-        // If status == "O" (OKAY), continue on.
-        // If status == "C", raise COLD_CATHODE_FAILURE, and exit normalOperation()
-        // If status == "R", raise PRESSURE_DOSE_WARNING, and continue
-        // If status == "M", raise MICROPIRANI_FAILURE, and exit normalOperation()
-    sensor.sendCommand("T?"); // send command to query device status
-    String status = sensor.readStatus();
-    if (status == "O") {
-        // Status "O" means OKAY, proceed with normal operations
-        // TODO: Clear any active COLD_CATHODE_FAILURE or  MICROPIRANI_FAILURE
-        // Continue the operation as this is not a critical error
-    } else if (status == "R") {
-        // Status "R" indicates the pressure dose has been exceeded
-        Serial.println("Warning: Pressure Dose Limit Exceeded");
-        // TODO: raise PRESSURE_DOSE_WARNING
-        // Continue the operation as this is not a critical error    
-    } else if (status == "C") {
-        // Status "C" indicates a cold cathode failure
-        Serial.println("Error: Cold Cathode Failure");
-        // TODO: raise COLD_CATHODE_FAILURE
-        return; // Exit normalOperation to prevent further actions
-    } else if (status == "M") {
-        // Status "M" indicates a Micropirani failure
-        Serial.println("Error: Micropirani Failure");
-        return; // Exit normalOperation to prevent further actions
-    }
 
     delay(1);
 }
@@ -273,7 +251,6 @@ void verifyInitialPressure() {
 // In progress
 void configurePressureSensor() {
 
-    
     /*** Set units to MBAR ***/
     CommandResult pressureUnitResponse = sensor.setPressureUnits("MBAR");
 
@@ -286,25 +263,23 @@ void configurePressureSensor() {
             errorCount++; // Increment the total error count (only if new error)
         }
     } else { // unit configuration succeeded
-        Serial.println("Pressure units set to MBAR");
+        Serial.println("Pressure units set to: MBAR");
         if (PRESSURE_UNIT_ERROR.asserted) { // Error was raised previously, but shouldn't exist anymore
             PRESSURE_UNIT_ERROR.asserted = false; // de-assert error
             errorCount--; // Decrement the total error count because the error is resolved 
-        } else {
-            Serial.println("User Tag configured successfully");
         }
     }
     
-    /*** Set user tag for sensor ***/
+    /*** Set user tag ***/
     CommandResult userTagResponse = sensor.setUserTag("LINECTRA1"); 
 
     // Parse response
     if (userTagResponse.outcome == false) { // user tag configuration failed
         Serial.println("PRESSURE_RELAY_ERROR: Failed to set user tag");
         if (!USER_TAG_NACK_ERROR.asserted){ // update only if wasn't already asserted
-            USER_TAG_NACK_ERROR.asserted = true;
-            USER_TAG_ERROR.actual = response.resultStr;
-            errorCount++;
+            USER_TAG_NACK_ERROR.asserted = true; // raise the error
+            USER_TAG_ERROR.actual = response.resultStr; // NAK message to print out
+            errorCount++; // increment the total error count (only if new error)
         }
     } else { // user tag configuration succeeded
         Serial.println("Pressure sensor ID tag set to: LINECTRA1");
@@ -312,7 +287,6 @@ void configurePressureSensor() {
             USER_TAG_NACK_ERROR.asserted = false; // clear the error
             errorCount--; // Decrement the total error count (only if previously asserted)
         }
-        Serial.println("User Tag configured successfully");
     }
 
     /*** Verify Sensor Status ***/
@@ -321,19 +295,38 @@ void configurePressureSensor() {
     // Parse response
     if (currentStatus.outcome == false) { // user tag configuration failed
         Serial.println("PRESSURE_SENSOR_ERROR: Failed to configure safety relay");
-        if (!SAFETY_RELAY_ERROR.asserted){ // update only if wasn't already asserted
-            SAFETY_RELAY_ERROR.asserted = true;
-            SAFETY_RELAY_ERROR.actual = response.resultStr;
+        if (!PRESSURE_NACK_ERROR.asserted){ // update only if wasn't already asserted
+            PRESSURE_NACK_ERROR.asserted = true;
+            PRESSURE_NACK_ERROR.actual = response.resultStr;
             errorCount++;
         }
     } 
-    else { // user tag configuration succeeded
-        Serial.println("Pressure sensor safety relay configured");
-        if (SAFETY_RELAY_ERROR.asserted) { // was previously in error state but now succeeded
-            SAFETY_RELAY_ERROR.asserted = false; // clear the error
+    else { // status query acknowledged
+        Serial.println("Pressure sensor status query acknowledged");
+        if (PRESSURE_NACK_ERROR.asserted) { // was previously in error state but now succeeded
+            PRESSURE_NACK_ERROR.asserted = false; // clear the error
             errorCount--; // Decrement the total error count (only if previously asserted)
         }
-        Serial.println("Pressure sensor safety relay configured successfully");
+        if (response.resultStr == "O"){
+            if (status == "O") {
+                // Status OKAY, proceed with normal operations
+                // TODO: Clear any active COLD_CATHODE_FAILURE or  MICROPIRANI_FAILURE
+                // Continue the operation as this is not a critical error
+            } else if (status == "R") {
+                // Status "R" indicates the pressure dose has been exceeded
+                Serial.println("Warning: Pressure Dose Limit Exceeded");
+                // TODO: raise PRESSURE_DOSE_WARNING
+                // Continue the operation as this is not a critical error    
+            } else if (status == "C") {
+                // Status "C" indicates a cold cathode failure
+                Serial.println("Error: Cold Cathode Failure");
+                // TODO: raise COLD_CATHODE_FAILURE
+                return; // Exit normalOperation to prevent further actions
+            } else if (status == "M") {
+                // Status "M" indicates a Micropirani failure
+                Serial.println("Error: Micropirani Failure");
+                return; // Exit normalOperation to prevent further actions
+            }
     }
 
     /*** Set Safety Relay Configuration  ***/
