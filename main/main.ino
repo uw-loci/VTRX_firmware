@@ -282,7 +282,7 @@ void configurePressureSensor() {
             errorCount++; // increment the total error count (only if new error)
         }
     } else { // user tag configuration succeeded
-        Serial.println("Pressure sensor ID tag set to: LINECTRA1");
+        Serial.println("Pressure sensor ID tag set to: EBEAM1");
         if (USER_TAG_NACK_ERROR.asserted) { // Error was raised previously, but shouldn't exist anymore
             USER_TAG_NACK_ERROR.asserted = false; // clear the error
             errorCount--; // Decrement the total error count (only if previously asserted)
