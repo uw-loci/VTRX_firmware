@@ -1,4 +1,5 @@
 #include <LiquidCrystal.h>  // Include LCD library
+#include <QueueList.h> // Include queue data structure library
 #include "972b.h"  // Include the pressure transducer library
 
 /**
@@ -50,47 +51,51 @@ struct SwitchStates {
   int argonGateValveOpen;
 };
 
+enum ErrorCode {
+  VALVE_CONTENTION,
+  COLD_CATHODE_FAILURE,
+  MICROPIRANI_FAILURE,
+  UNEXPECTED_PRESSURE_ERROR,
+  SAFETY_RELAY_ERROR,
+  ARGON_GATE_VALVE_ERROR,
+  TURBO_GATE_VALVE_ERROR,
+  VENT_VALVE_OPEN_ERROR,
+  PRESSURE_NACK_ERROR,
+  PRESSURE_SENSE_ERROR,
+  PRESSURE_UNIT_ERROR,
+  USER_TAG_NACK_ERROR,
+  RELAY_NACK_ERROR,
+  PRESSURE_DOSE_WARNING,
+  TURBO_GATE_VALVE_WARNING,
+  TURBO_ROTOR_ON_WARNING,
+  UNSAFE_FOR_HV_WARNING
+};
+
+enum ErrorLevel {
+    WARNING,
+    ERROR
+};
+
 /** 
  *    The Error data structure contains information about possible errors
- *
  *    It contains the following fields:
  *        CODE: an enum that identifies the type of error
  *        EXPECTED: A String representing the expected value or state that was detected when the error occurred. This
  *                  might refer to a sensor reading, a status code, or any other piece of data relevant to the error.
  *        ACTUAL: A String representing the actual value or state detected when the error occured.
  *        ASSERTED: A bool indicating the active or deactivated status of the error
- *        PERSISTENCE: a bool indicating whether the error is persistent(true) or temporary (false).
- *                     Temporary errors will dissapear after a specified amount of time elapses (AUTO_RESET_TIMEOUT)
 **/ 
 struct Error {
   ErrorCode code;       // Name of error
-  String level;         // To be displayed on LCD, e.g. WARNING, ERROR
+  ErrorLevel level;     // To be displayed on LCD, e.g. WARNING, ERROR
   String expected;      // expected value or state that was detected when the error occurred. This might refer to a sensor reading, a status code, or any other piece of data relevant to the error.
   String actual;        // actual value that is read
   bool asserted;        // TRUE (active) or FALSE (not active)
+  unsigned long timestamp; // Time when error was added to the queue
 };
 
-
-enum Error errors[] {
-	// ERROR CODE, 		        LEVEL       EXPECTED, 	    ACTUAL,             Asserted
-    {VALVE_CONTENTION,          "ERROR"     "ValveOK",      "Valvecontention",  false},
-    {COLD_CATHODE_FAILURE,      "ERROR"     "972Ok",        "ColdCathodeFail",  false},
-    {MICROPIRANI_FAILURE,       "ERROR"     "972Ok",        "MicroPiraniFail",  false},
-    {UNEXPECTED_PRESSURE_ERROR, "WARNING"   "1.01E3",       "",                 false},
-    {SAFETY_RELAY_ERROR,        "ERROR"     "CLOSED",       "OPEN",             false},
-    {ARGON_GATE_VALVE_ERROR,    "ERROR"     "ArgGateOK",    "ArgGateErr",       false},
-    {TURBO_GATE_VALVE_ERROR,    "ERROR"     "Expected",     "ACTUAL",           false},
-    {VENT_VALVE_OPEN_ERROR,     "ERROR"     "Expected",     "ACTUAL",           false},
-    {PRESSURE_NACK_ERROR,       "ERROR"     "Expected",     "ACTUAL",           false},
-    {PRESSURE_SENSE_ERROR,      "ERROR",    "972b OK",      "",                 false},
-    {PRESSURE_UNIT_ERROR,       "ERROR",    "Expected",     "ACTUAL",           false},
-    {USER_TAG_NACK_ERROR,       "ERROR",    "Expected",     "ACTUAL",           false},
-    {RELAY_NACK_ERROR,          "ERROR",    "Expected",     "ACTUAL",           false}, 
-    {PRESSURE_DOSE_WARNING,     "WARNING"   "Expected",     "ACTUAL",           false},
-    {TURBO_GATE_VALVE_WARNING,  "WARNING"   "Expected",     "ACTUAL",           false},
-    {TURBO_ROTOR_ON_WARNING,    "WARNING",  "Expected",     "ACTUAL",           false},
-    {UNSAFE_FOR_HV_WARNING,     "WARNING",  "Expected",     "ACTUAL",           false}
-}
+/*** Define the error queue ***/
+QueueList<Error> errorQueue;
 
 unsigned int currentErrorIndex = 0;
 unsigned int errorCount = 0;                // This will be updated as errors are added/removed
@@ -198,29 +203,25 @@ SwitchStates readSystemSwitchStates() {
 *   and not both simultaneously
 */
 void checkForValveContention(const SwitchStates& states) {
+    bool isArgonValveContention = (states.argonGateValveClosed == HIGH && states.argonGateValveOpen == HIGH);
+    bool isTurboValveContention = (states.turboGateValveOpen == HIGH && states.turboGateValveClosed == HIGH);
+
     // Check for Argon Gate Valve contention
-    if (states.argonGateValveClosed == HIGH && states.argonGateValveOpen == HIGH) {
+    if (isArgonValveContention) {
         // Argon gate valve error: both pins are HIGH simultaneously
-        VALVE_CONTENTION_ERROR.asserted = true;
-        ARGON_GATE_VALVE_ERROR.asserted = true;
+        addErrorToQueue(ARGON_GATE_VALVE_ERROR, ERROR, "ValveOK", "ValveContention");
         Serial.println("ARGON_GATE_VALVE_CONTENTION: Both CLOSED and OPEN pins are HIGH");
-        // Continue on
     } else {
-        VALVE_CONTENTION_ERROR.asserted = false;
-        ARGON_GATE_VALVE_ERROR.asserted = false;
-        Serial.println("ARGON_GATE_VALVE_CONTENTION_CHECK: OK");
+        removeErrorFromQueue(ARGON_GATE_VALVE_ERROR);
     }
 
     // Check for Turbo Gate Valve contention
-    if (states.turboGateValveOpen == HIGH && states.turboGateValveClosed == HIGH) {
+    if (isTurboValveContention) {
         // Turbo gate valve error: both pins are HIGH simultaneously
-        VALVE_CONTENTION_ERROR.asserted = true;
-        TURBO_GATE_VALUE_ERROR.asserted = true;
+        addErrorToQueue(TURBO_GATE_VALVE_ERROR, ERROR, "ValveOK", "ValveContention");
         Serial.println("TURBO_GATE_VALVE_CONTENTION: Both CLOSED and OPEN pins are HIGH");
     } else {
-        VALVE_CONTENTION_ERROR.asserted = false;
-        TURBO_GATE_VALVE_ERROR.asserted = false;
-        Serial.println("TURBO_GATE_VALVE_CONTENTION_CHECK: OK");
+        removeErrorFromQueue(TURBO_GATE_VALVE_ERROR);
     }
 }
 
@@ -228,6 +229,7 @@ void checkForValveContention(const SwitchStates& states) {
 * Performs a simple check to validate whether the chamber is at atmospheric pressure or not.
 * Utilizes a 10% threshold.
 */
+// TODO: update this to use error queue instead of manual array
 void verifyInitialPressure() {
     double initialPressure = sensor.requestPressure(); // TODO: add default measureType to this function in 972b driver, currently this won't work as portrayed
     if (abs(initialPressure - EXPECTED_AMBIENT_PRESSURE) <= AMBIENT_PRESSURE_THRESHOLD) {
@@ -254,80 +256,46 @@ void configurePressureSensor() {
     /*** Set units to MBAR ***/
     CommandResult pressureUnitResponse = sensor.setPressureUnits("MBAR");
 
-    // Parse response
-    if (pressureUnitResponse.outcome == false) { // pressure unit configuration failed
-        Serial.println("PRESSURE_RELAY_ERROR: Failed to set pressure units to MBAR");
-        if (!PRESSURE_UNIT_ERROR.asserted) { // update only if wasn't already asserted
-            PRESSURE_UNIT_ERROR.asserted = true; // raise the error
-            PRESSURE_UNIT_ERROR.actual = response.resultStr; // NAK message to print out
-            errorCount++; // Increment the total error count (only if new error)
-        }
-    } else { // unit configuration succeeded
-        Serial.println("Pressure units set to: MBAR");
-        if (PRESSURE_UNIT_ERROR.asserted) { // Error was raised previously, but shouldn't exist anymore
-            PRESSURE_UNIT_ERROR.asserted = false; // de-assert error
-            errorCount--; // Decrement the total error count because the error is resolved 
-        }
+    if (!pressureUnitResponse.outcome) {
+        // Pressure unit configuration failed
+        addErrorToQueue(PRESSURE_UNIT_ERROR, ERROR, "MBAR", pressureUnitResponse.resultStr);
+    } else {
+        // Pressure unit configuration succeeded
+        removeErrorFromQueue(PRESSURE_UNIT_ERROR);
     }
-    
-    /*** Set user tag ***/
+
     CommandResult userTagResponse = sensor.setUserTag("EBEAM1"); 
 
-    // Parse response
-    if (userTagResponse.outcome == false) { // user tag configuration failed
-        Serial.println("PRESSURE_RELAY_ERROR: Failed to set user tag");
-        if (!USER_TAG_NACK_ERROR.asserted){ // update only if wasn't already asserted
-            USER_TAG_NACK_ERROR.asserted = true; // raise the error
-            USER_TAG_ERROR.actual = response.resultStr; // NAK message to print out
-            errorCount++; // increment the total error count (only if new error)
-        }
-    } else { // user tag configuration succeeded
-        Serial.println("Pressure sensor ID tag set to: EBEAM1");
-        if (USER_TAG_NACK_ERROR.asserted) { // Error was raised previously, but shouldn't exist anymore
-            USER_TAG_NACK_ERROR.asserted = false; // clear the error
-            errorCount--; // Decrement the total error count (only if previously asserted)
-        }
+    if (!userTagResponse.outcome) {
+        // User tag configuration failed
+        addErrorToQueue(USER_TAG_NACK_ERROR, ERROR, "EBEAM1", userTagResponse.resultStr);
+    } else {
+        // User tag configuration succeeded
+        removeErrorFromQueue(USER_TAG_NACK_ERROR);
     }
 
-    /*** Verify Sensor Status ***/
     CommandResult currentStatus = sensor.status();
 
-    // Parse response
-    if (currentStatus.outcome == false) { // user tag configuration failed
-        Serial.println("PRESSURE_SENSOR_ERROR: Failed to configure safety relay");
-        if (!PRESSURE_NACK_ERROR.asserted){ // update only if wasn't already asserted
-            PRESSURE_NACK_ERROR.asserted = true;
-            PRESSURE_NACK_ERROR.actual = response.resultStr;
-            errorCount++;
+    if (!currentStatus.outcome) {
+        // Sensor status query failed
+        addErrorToQueue(PRESSURE_NACK_ERROR, ERROR, "972bOK", currentStatus.resultStr);
+    } else {
+        // Check specific statuses
+        if (currentStatus.resultStr == "C") {
+            // Cold Cathode Failure
+            addErrorToQueue(COLD_CATHODE_FAILURE, ERROR, "972bOK", "ColdCathodeFail");
+        } else if (currentStatus.resultStr == "M") {
+            // Micropirani Failure
+            addErrorToQueue(MICROPIRANI_FAILURE, ERROR, "972bOK", "MicroPiraniFail");
+        } else if (currentStatus.result.Str == "R") {
+            // Pressure Dose Limit Exceeded Warning
+            addErrorToQueue(PRESSURE_DOSE_WARNING, WARNING, "972bOK", "PressureDoseExc");
+        } else {
+            removeErrorFromQueue(COLD_CATHODE_FAILURE);
+            removeErrorFromQueue(MICROPIRANI_FAILURE);
         }
-    } 
-    else { // status query acknowledged
-        Serial.println("Pressure sensor status query acknowledged");
-        if (PRESSURE_NACK_ERROR.asserted) { // was previously in error state but now succeeded
-            PRESSURE_NACK_ERROR.asserted = false; // clear the error
-            errorCount--; // Decrement the total error count (only if previously asserted)
-        }
-        if (response.resultStr == "O"){
-            if (status == "O") {
-                // Status OKAY, proceed with normal operations
-                // TODO: Clear any active COLD_CATHODE_FAILURE or  MICROPIRANI_FAILURE
-                // Continue the operation as this is not a critical error
-            } else if (status == "R") {
-                // Status "R" indicates the pressure dose has been exceeded
-                Serial.println("Warning: Pressure Dose Limit Exceeded");
-                // TODO: raise PRESSURE_DOSE_WARNING
-                // Continue the operation as this is not a critical error    
-            } else if (status == "C") {
-                // Status "C" indicates a cold cathode failure
-                Serial.println("Error: Cold Cathode Failure");
-                // TODO: raise COLD_CATHODE_FAILURE
-                return; // Exit normalOperation to prevent further actions
-            } else if (status == "M") {
-                // Status "M" indicates a Micropirani failure
-                Serial.println("Error: Micropirani Failure");
-                return; // Exit normalOperation to prevent further actions
-            }
     }
+}
 
     /*** Set Safety Relay Configuration  ***/
     CommandResult outputConfig = sensor.setupSetpoint("1E-4", "BELOW", "1.1E0", "ON"); // (pressure value, direction, hysteresis, enable status)
@@ -363,48 +331,66 @@ void startupMsg() {
 
 // TODO: 
 void displayPressureReading() {
-    String pressure = sensor.readPressure();
-    //float pressure = sensor.readPressure(); 
-    String pressureStr = String(pressure, 4) + "mbar"; // Convert pressure to string with 4 decimal places
-    lcd.setCursor(0, 0);
-    lcd.print("Pressure ");
-    lcd.print(pressureStr);
-    // Assuming errorCount is calculated elsewhere and available here
-    lcd.print(" Error Count: [ER");
-    lcd.print(errorCount); // Assuming you have a mechanism to count errors
-    lcd.print("]");
+
 }
 
-// TODO: remove
-void updateError(ErrorCode errorCode, String expected, String actual, bool persistence) {
-    for (unsigned int i = 0; i < errorCount; i++) {
-        if (errors[i].code == errorCode) {
-            // error already exists, update it
-            errors[i].expected = expected;
-            errors[i].actual = actual; 
-            errors[i].isPersistent = persistence;
+void addErrorToQueue(ErrorCode code, ErrorCode level, String expected, String actual) {
+    // Check for existing error with the same code
+    for (unsigned int i = 0; i < errorQueue.count(); i++) {
+        Error currentError = errorQueue.peek(i);
+        if (currentError.code == code) {
+            // Error already exists, update it instead of adding a new entry
+            currentError.level = level;
+            currentError.expected = expected;
+            currentError.actual = actual;
+            currentError.asserted = true;  // Re-assert the error
+            currentError.timestamp = millis();
             return;
         }
     }
+    // If error does not exist, add a new one
+    Error newError = {code, level, expected, actual, true, millis()};
+    errorQueue.push(newError);
+}
 
-    // Add new error if not found
-    if (errorCount < sizeof(errors) / sizeof(errors[0])) {
-        errors[errorCount++] = {errorCode, expected, actual, isPersistent};
+void removeErrorFromQueue(ErrorCode code) {
+    int queueSize = errorQueue.count();
+    for(int i = 0; i < queueSize; i++) {
+        Error currentError = errorQueue.peek();
+        errorQueue.pop(); // Remove the current error from the queue
+        if (currentError.code != code) {
+            errorQueue.push(currentError);
+        }
+        // if it's the error to remove, it is already removed by the pop() operation
     }
 }
 
-// TODO: remove
-void removeError(ErrorCode error) {
-    // Simplified error removal logic
-    for (unsigned int i = 0; i < errorCount; i++) { 
-        if (errors[i].code == errorCode) {
-            // Shift errors down in the array to remove the error
-            for (unsigned int j = i; j < errorCount - 1; j++) {
-                errors[j] = errors[j + 1];
-            }
-            errorCount--;
-            return;
-        }
+void cleanExpiredErrors() {
+  unsigned long currentTime = millis();
+  int queueSize = errorQueue.count();
+  for (int i = 0; i < queueSize; i++) {
+    Error currentError = errorQueue.peek();
+    errorQueue.pop();  // Remove the current error from the queue
+    if (currentTime - currentError.timestamp < AUTO_RESET_TIMEOUT || currentError.asserted) {
+      // Keep errors that are within the timeout or are asserted
+      errorQueue.push(currentError);
+    }
+    // Expired and non-asserted errors are simply not re-added
+  }
+}
+
+// TODO: add state, pressure, etc.
+void updateLCD(){
+    if (!errorQueue.isEmpty()) {
+        // Get the next error to display
+        Error displayError = errorQueue.pop();
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("Error: " + String(displayError.code));
+        lcd.setCursor(0, 1);
+        lcd.print("Exp: " + displayError.expected + " Act: " + displayError.actual);
+        // Optionally, re-add the error to the end of the queue if it should be cycled
+        errorQueue.push(displayError);
     }
 }
 
