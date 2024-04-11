@@ -68,29 +68,28 @@ struct Error {
   String expected;      // expected value or state that was detected when the error occurred. This might refer to a sensor reading, a status code, or any other piece of data relevant to the error.
   String actual;        // actual value that is read
   bool asserted;        // TRUE (active) or FALSE (not active)
-  bool persistence;     // TRUE (persistent, has to be explicitly deactivated) or FALSE (deactivated automatically after )
 };
 
 
 enum Error errors[] {
-	// ERROR CODE, 		        LEVEL       EXPECTED, 	    ACTUAL,             Asserted    Persistent:TODO: delete this
-    {VALVE_CONTENTION,          "ERROR"     "ValveOK",      "Valvecontention",  false,      true},
-    {COLD_CATHODE_FAILURE,      "ERROR"     "972Ok",        "ColdCathodeFail",  false,      true},
-    {MICROPIRANI_FAILURE,       "ERROR"     "972Ok",        "MicroPiraniFail",  false,      true},
-    {UNEXPECTED_PRESSURE_ERROR, "WARNING"   "1.01E3",       "",                 false,      true},
-    {SAFETY_RELAY_ERROR,        "ERROR"     "CLOSED",       "OPEN",             false,      true},
-    {ARGON_GATE_VALVE_ERROR,    "ERROR"     "ArgGateOK",    "ArgGateErr",       false,      true},
-    {TURBO_GATE_VALVE_ERROR,    "ERROR"     "Expected",     "ACTUAL",           false,      true},
-    {VENT_VALVE_OPEN_ERROR,     "ERROR"     "Expected",     "ACTUAL",           false,      true},
-    {PRESSURE_NACK_ERROR,       "ERROR"     "Expected",     "ACTUAL",           false,      true},
-    {PRESSURE_SENSE_ERROR,      "ERROR",    "972b OK",      "",                 false,      false},
-    {PRESSURE_UNIT_ERROR,       "ERROR",    "Expected",     "ACTUAL",           false,      false},
-    {USER_TAG_NACK_ERROR,       "ERROR",    "Expected",     "ACTUAL",           false,      false},
-    {RELAY_NACK_ERROR,          "ERROR",    "Expected",     "ACTUAL",           false,      false}, 
-    {PRESSURE_DOSE_WARNING,     "WARNING"   "Expected",     "ACTUAL",           false,      false},
-    {TURBO_GATE_VALVE_WARNING,  "WARNING"   "Expected",     "ACTUAL",           false,      false},
-    {TURBO_ROTOR_ON_WARNING,    "WARNING",  "Expected",     "ACTUAL",           false,      false},
-    {UNSAFE_FOR_HV_WARNING,     "WARNING",  "Expected",     "ACTUAL",           false,      false}
+	// ERROR CODE, 		        LEVEL       EXPECTED, 	    ACTUAL,             Asserted
+    {VALVE_CONTENTION,          "ERROR"     "ValveOK",      "Valvecontention",  false},
+    {COLD_CATHODE_FAILURE,      "ERROR"     "972Ok",        "ColdCathodeFail",  false},
+    {MICROPIRANI_FAILURE,       "ERROR"     "972Ok",        "MicroPiraniFail",  false},
+    {UNEXPECTED_PRESSURE_ERROR, "WARNING"   "1.01E3",       "",                 false},
+    {SAFETY_RELAY_ERROR,        "ERROR"     "CLOSED",       "OPEN",             false},
+    {ARGON_GATE_VALVE_ERROR,    "ERROR"     "ArgGateOK",    "ArgGateErr",       false},
+    {TURBO_GATE_VALVE_ERROR,    "ERROR"     "Expected",     "ACTUAL",           false},
+    {VENT_VALVE_OPEN_ERROR,     "ERROR"     "Expected",     "ACTUAL",           false},
+    {PRESSURE_NACK_ERROR,       "ERROR"     "Expected",     "ACTUAL",           false},
+    {PRESSURE_SENSE_ERROR,      "ERROR",    "972b OK",      "",                 false},
+    {PRESSURE_UNIT_ERROR,       "ERROR",    "Expected",     "ACTUAL",           false},
+    {USER_TAG_NACK_ERROR,       "ERROR",    "Expected",     "ACTUAL",           false},
+    {RELAY_NACK_ERROR,          "ERROR",    "Expected",     "ACTUAL",           false}, 
+    {PRESSURE_DOSE_WARNING,     "WARNING"   "Expected",     "ACTUAL",           false},
+    {TURBO_GATE_VALVE_WARNING,  "WARNING"   "Expected",     "ACTUAL",           false},
+    {TURBO_ROTOR_ON_WARNING,    "WARNING",  "Expected",     "ACTUAL",           false},
+    {UNSAFE_FOR_HV_WARNING,     "WARNING",  "Expected",     "ACTUAL",           false}
 }
 
 unsigned int currentErrorIndex = 0;
@@ -147,6 +146,7 @@ void loop() {
     // vtrx_btest_040();
 }
 
+// TODO: implmement this
 void normalOperation() {
     
     // Read system switch states
@@ -271,7 +271,7 @@ void configurePressureSensor() {
     }
     
     /*** Set user tag ***/
-    CommandResult userTagResponse = sensor.setUserTag("LINECTRA1"); 
+    CommandResult userTagResponse = sensor.setUserTag("EBEAM1"); 
 
     // Parse response
     if (userTagResponse.outcome == false) { // user tag configuration failed
