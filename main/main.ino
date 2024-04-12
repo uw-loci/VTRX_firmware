@@ -140,7 +140,7 @@ void setup() {
         // check if initial pressure is approximately 1 ATM
         verifyInitialPressure();
 
-        //      Print message: Setup Complete
+        updateLCD();
         //      Verify errorCount == 0
     } while (errorCount != 0);
 
@@ -295,7 +295,7 @@ void configurePressureSensor() {
         } else if (currentStatus.result.Str == "R") {
             // Pressure Dose Limit Exceeded Warning
             addErrorToQueue(PRESSURE_DOSE_WARNING, WARNING, "972bOK", "PressureDoseExc");
-        } else {
+        } else { // sensor is "OK"
             removeErrorFromQueue(COLD_CATHODE_FAILURE);
             removeErrorFromQueue(MICROPIRANI_FAILURE);
             removeErrorFromQueue(PRESSURE_DOSE_WARNING);
