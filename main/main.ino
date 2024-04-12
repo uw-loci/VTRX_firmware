@@ -18,6 +18,7 @@ const int rs = 12, en = 10, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // 20x4 LCD pin conn
 /**
 *	System constants
 **/
+#define FIRMWARE_VERSION                "v.1.0"
 #define EXPECTED_AMBIENT_PRESSURE       1013    // Nominal ambient pressure                         [millibar]
 #define AMBIENT_PRESSURE_TOLERANCE      101     // 10% tolerance level for ambient                  [millibar]
 #define PRESSURE_GAUGE_DEFAULT_ADDR     "253"   // Default 972b device address
@@ -142,6 +143,8 @@ void setup() {
         //      Print message: Setup Complete
         //      Verify errorCount == 0
     } while (errorCount != 0);
+
+    
 }
 
 void loop() {
@@ -318,9 +321,19 @@ void sendDataToLabVIEW() {
     // This can live outside the loop() function for better code organization
 }
 
-// TODO
 void startupMsg() {
+    lcd.clear();
+    String messageLine1 = "EBEAM VTRX-200";
+    String messageLine2 = "Firmware " + String(FIRMWARE_VERSION); // Concatenating the version
+    int startPosLine1 = (20 - messageLine1.length()) / 2;  // Center line 1
+    int startPosLine2 = (20 - messageLine2.length()) / 2;  // Center line 2
     
+    lcd.setCursor(startPosLine1, 1);  // Set cursor to center of the second row
+    lcd.print(messageLine1);
+    lcd.setCursor(startPosLine2, 2);  // Set cursor to center of the third row
+    lcd.print(messageLine2);
+    delay(1000);  // Display the message for 1000 milliseconds or one second
+    lcd.clear();
 }
 
 // TODO: 
@@ -383,7 +396,7 @@ void updateLCD(){
         lcd.print("Error: " + String(displayError.code));
         lcd.setCursor(0, 1);
         lcd.print("Exp: " + displayError.expected + " Act: " + displayError.actual);
-        // Optionally, re-add the error to the end of the queue if it should be cycled
+        // Re-add the error to the end of the queue if it should be cycled
         errorQueue.push(displayError);
     }
 }
