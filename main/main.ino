@@ -264,6 +264,7 @@ void configurePressureSensor() {
         removeErrorFromQueue(PRESSURE_UNIT_ERROR);
     }
 
+    /*** Set user tag ***/
     CommandResult userTagResponse = sensor.setUserTag("EBEAM1"); 
 
     if (!userTagResponse.outcome) {
@@ -274,6 +275,7 @@ void configurePressureSensor() {
         removeErrorFromQueue(USER_TAG_NACK_ERROR);
     }
 
+    /*** Query the sensor status ***/
     CommandResult currentStatus = sensor.status();
 
     if (!currentStatus.outcome) {
@@ -293,28 +295,20 @@ void configurePressureSensor() {
         } else {
             removeErrorFromQueue(COLD_CATHODE_FAILURE);
             removeErrorFromQueue(MICROPIRANI_FAILURE);
+            removeErrorFromQueue(PRESSURE_DOSE_WARNING);
         }
     }
-}
 
     /*** Set Safety Relay Configuration  ***/
     CommandResult outputConfig = sensor.setupSetpoint("1E-4", "BELOW", "1.1E0", "ON"); // (pressure value, direction, hysteresis, enable status)
 
-    // Parse response
-    if (relayConfig.outcome == false) { // user tag configuration failed
+    if (!relayConfig.outcome) {
+        // Safety relay configuration failed
+        addErrorToQueue(SAFETY_RELAY_ERROR, ERROR, "SafetyRelayOK", relayConfig.resultStr);
         Serial.println("PRESSURE_RELAY_ERROR: Failed to configure safety relay");
-        if (!SAFETY_RELAY_ERROR.asserted){ // update only if wasn't already asserted
-            SAFETY_RELAY_ERROR.asserted = true;
-            SAFETY_RELAY_ERROR.actual = response.resultStr;
-            errorCount++;
-        }
-    } 
-    else { // user tag configuration succeeded
-        Serial.println("Pressure sensor safety relay configured");
-        if (SAFETY_RELAY_ERROR.asserted) { // was previously in error state but now succeeded
-            SAFETY_RELAY_ERROR.asserted = false; // clear the error
-            errorCount--; // Decrement the total error count (only if previously asserted)
-        }
+    } else {
+        // Safety relay configuration succeeded
+        removeErrorFromQueue(SAFETY_RELAY_ERROR);
         Serial.println("Pressure sensor safety relay configured successfully");
     }
 }
