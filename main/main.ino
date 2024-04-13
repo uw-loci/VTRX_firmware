@@ -237,18 +237,20 @@ void verifyInitialPressure() {
     double initialPressure = sensor.requestPressure(); // TODO: add default measureType to this function in 972b driver, currently this won't work as portrayed
     if (abs(initialPressure - EXPECTED_AMBIENT_PRESSURE) <= AMBIENT_PRESSURE_THRESHOLD) {
         // initial pressure reading is within tolerance of expected value
-        UNEXPECTED_PRESSURE_ERROR.asserted = false;
         Serial.print("Initial pressure reading: ");
         Serial.print(initialPressure);
         Serial.println("[mbar]");
+        // Remove the unexpected pressure error if it exists
+        removeErrorFromQueue(UNEXPECTED_PRESSURE_ERROR);
     } else {
-        // Pressure reading is not at ambient,
-        // raise UNEXPECTED_PRESSURE_ERROR
-        UNEXPECTED_PRESSURE_ERROR.asserted = true;
-        UNEXPECTED_PRESSURE_ERROR.actual = initialPressure;
+        // Pressure reading is not at ambient, add or update the unexpected pressure error in the queue
+        String expectedPressureStr = String(EXPECTED_AMBIENT_PRESSURE) + " mbar";
+        String actualPressureStr = String(initialPressure) + " mbar";
         Serial.print("WARNING: Unexpected initial pressure reading: ");
-        Serial.print(initialPressure);
-        Serial.println("[mbar]");
+        Serial.print(actualPressureStr);
+        Serial.println(" mbar");
+        // Add or update the error in the error queue (severity level = WARNING)
+        addErrorToQueue(UNEXPECTED_PRESSURE_ERROR, WARNING, expectedPressureStr, actualPressureStr);
     }
     return;
 }
@@ -288,6 +290,7 @@ void configurePressureSensor() {
         // Check specific statuses
         if (currentStatus.resultStr == "C") {
             // Cold Cathode Failure
+            // ErrorCode code, ErrorCode level, String expected, String actual
             addErrorToQueue(COLD_CATHODE_FAILURE, ERROR, "972bOK", "ColdCathodeFail");
         } else if (currentStatus.resultStr == "M") {
             // Micropirani Failure
