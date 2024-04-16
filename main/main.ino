@@ -137,9 +137,6 @@ void setup() {
         /*** Pressure Sensor configuration ***/
         configurePressureSensor();
 
-        // check if initial pressure is approximately 1 ATM
-        verifyInitialPressure();
-
         updateLCD();
         //      Verify errorCount == 0
     } while (errorCount != 0);
@@ -287,35 +284,58 @@ void configurePressureSensor() {
         // Sensor status query failed
         addErrorToQueue(PRESSURE_NACK_ERROR, ERROR, "972bOK", currentStatus.resultStr);
     } else {
-        // Check specific statuses
-        if (currentStatus.resultStr == "C") {
-            // Cold Cathode Failure
-            // ErrorCode code, ErrorCode level, String expected, String actual
+        // Sensor status query succeeded,
+        // handle return code
+        if (currentStatus.resultStr == "C") { // Cold Cathode Failure
+            // Parameters are: code, level, expected, actual
             addErrorToQueue(COLD_CATHODE_FAILURE, ERROR, "972bOK", "ColdCathodeFail");
-        } else if (currentStatus.resultStr == "M") {
+        } else if (currentStatus.resultStr == "M") { 
             // Micropirani Failure
             addErrorToQueue(MICROPIRANI_FAILURE, ERROR, "972bOK", "MicroPiraniFail");
-        } else if (currentStatus.result.Str == "R") {
+        } else if (currentStatus.result.Str == "R") { 
             // Pressure Dose Limit Exceeded Warning
             addErrorToQueue(PRESSURE_DOSE_WARNING, WARNING, "972bOK", "PressureDoseExc");
-        } else { // sensor is "OK"
+            if (!isErrorPresent(COLD_CATHODE_FAILURE) && !isErrorPresent(MICROPIRANI_FAILURE)) {
+                
+                /*** Set Safety Relay Configuration  ***/
+                CommandResult outputConfig = sensor.setupSetpoint("1E-4", "BELOW", "1.1E0", "ON"); // (pressure value, direction, hysteresis, enable status)
+
+                if (!relayConfig.outcome) {
+                    // Safety relay configuration failed
+                    addErrorToQueue(SAFETY_RELAY_ERROR, ERROR, "SafetyRelayOK", relayConfig.resultStr);
+                    Serial.println("PRESSURE_RELAY_ERROR: Failed to configure safety relay");
+                } else {
+                    // Safety relay configuration succeeded
+                    removeErrorFromQueue(SAFETY_RELAY_ERROR);
+                    Serial.println("Pressure sensor safety relay configured successfully");
+                }
+
+                // check if initial pressure is approximately 1 ATM
+                verifyInitialPressure();
+            }
+        } else if (currentStatus.resultStr == "O") { // sensor is "OK"
             removeErrorFromQueue(COLD_CATHODE_FAILURE);
             removeErrorFromQueue(MICROPIRANI_FAILURE);
             removeErrorFromQueue(PRESSURE_DOSE_WARNING);
+        
+            /*** Set Safety Relay Configuration  ***/
+            CommandResult outputConfig = sensor.setupSetpoint("1E-4", "BELOW", "1.1E0", "ON"); // (pressure value, direction, hysteresis, enable status)
+
+            if (!relayConfig.outcome) {
+                // Safety relay configuration failed
+                addErrorToQueue(SAFETY_RELAY_ERROR, ERROR, "SafetyRelayOK", relayConfig.resultStr);
+                Serial.println("PRESSURE_RELAY_ERROR: Failed to configure safety relay");
+            } else {
+                // Safety relay configuration succeeded
+                removeErrorFromQueue(SAFETY_RELAY_ERROR);
+                Serial.println("Pressure sensor safety relay configured successfully");
+            }
+
+            // check if initial pressure is approximately 1 ATM
+            verifyInitialPressure();
+        } else {
+
         }
-    }
-
-    /*** Set Safety Relay Configuration  ***/
-    CommandResult outputConfig = sensor.setupSetpoint("1E-4", "BELOW", "1.1E0", "ON"); // (pressure value, direction, hysteresis, enable status)
-
-    if (!relayConfig.outcome) {
-        // Safety relay configuration failed
-        addErrorToQueue(SAFETY_RELAY_ERROR, ERROR, "SafetyRelayOK", relayConfig.resultStr);
-        Serial.println("PRESSURE_RELAY_ERROR: Failed to configure safety relay");
-    } else {
-        // Safety relay configuration succeeded
-        removeErrorFromQueue(SAFETY_RELAY_ERROR);
-        Serial.println("Pressure sensor safety relay configured successfully");
     }
 }
 
@@ -387,6 +407,17 @@ void cleanExpiredErrors() {
     }
     // Expired and non-asserted errors are simply not re-added
   }
+}
+
+bool isErrorPresent(ErrorCode code) {
+    // Iterate through the error queue to check if the specified error code is present
+    for (unsigned int i = 0; i < errorQueue.count(); i++) {
+        Error currentError = errorQueue.peek(i);
+        if (currentError.code == errorCode && currentError.asserted) {
+            return true; // found it
+        }
+    }
+    return false; // error wasn't in queue
 }
 
 // TODO: add state, pressure, etc.
