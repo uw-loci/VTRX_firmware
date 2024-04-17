@@ -127,32 +127,28 @@ void setup() {
     do {
         /*** Read in system switch states ***/
         SwitchStates currentStates = readSystemSwitchStates();
-
+    
         checkForValveContention(currentStates);
-
-        // TODO: encapsulate the following into readSystemSwitchStates()
-        //      Verify TURBO_ROTOR_ON is not HIGH if PUMPS_POWER_ON is LOW
-        //          if it is, raise TURBO_ROTOR_ON_WARNING
+        checkTurboRotorOnWithoutPumpsPower(currentStates); // Ensure TURBO_ROTOR is OFF if PUMPS_POWER is OFF
 
         /*** Pressure Sensor configuration ***/
         configurePressureSensor();
 
+        /*** Update display ***/
         updateLCD();
-        //      Verify errorCount == 0
     } while (errorCount != 0);
-
-    
 }
 
 void loop() {
-    updateLCD();
-    // vtrx_btest_020();
-    // vtrx_btest_040();
 
     // Read system switch states
     SwitchStates currentStates = readSystemSwitchStates();
+    checkForValveContention(currentStates);
+    checkTurboRotorOnWithoutPumpsPower(currentStates); // Ensure TURBO_ROTOR is OFF if PUMPS_POWER is OFF
 
-    delay(1);
+
+    updateLCD();
+    delay(50);
 }
 
 // TODO: implement this
@@ -217,6 +213,20 @@ void checkForValveContention(const SwitchStates& states) {
         Serial.println("TURBO_GATE_VALVE_CONTENTION: Both CLOSED and OPEN pins are HIGH");
     } else {
         removeErrorFromQueue(TURBO_GATE_VALVE_ERROR);
+    }
+}
+
+void checkTurboRotorOnWithoutPumpsPower(const SwitchStates& states) {
+    bool isTurboRotorOnWithoutPumps = (states.turboRotorOn == HIGH && states.pumpsPowerOn == LOW);
+
+    // Check if TURBO_ROTOR_ON is on while PUMPS_POWER_ON is off
+    if (isTurboRotorOnWithoutPumps) {
+        // This condition is potentially unsafe, add a warning to the error queue
+        addErrorToQueue(TURBO_ROTOR_ON_WARNING, WARNING, "PumpsON", "PumpsOff"); // TODO: decide formatting on this
+        Serial.println("WARNING: Turbo rotor is ON while Pumps Power is OFF");
+    } else {
+        // If the condition is not met, remove the warning from queue (if it exists)
+        removeErrorFromQueue(TURBO_ROTOR_ON_WARNING);
     }
 }
 
@@ -314,7 +324,7 @@ void configurePressureSensor() {
             removeErrorFromQueue(PRESSURE_DOSE_WARNING);
         
             /*** Set Safety Relay Configuration  ***/
-            CommandResult outputConfig = sensor.setupSetpoint("1E-4", "BELOW", "1.1E0", "ON"); // (pressure value, direction, hysteresis, enable status)
+            CommandResult outputConfig = sensor.setupSetpoint("1E-4", "BELOW", "1.1E0", "ON"); // (pressure setpoint value, direction, hysteresis, enable status)
 
             if (!relayConfig.outcome) {
                 // Safety relay configuration failed
