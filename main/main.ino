@@ -97,9 +97,7 @@ struct Error {
 
 /*** Define the error queue ***/
 QueueList<Error> errorQueue;
-
 unsigned int currentErrorIndex = 0;
-unsigned int errorCount = 0;                // This will be updated as errors are added/removed
 unsigned long lastErrorDisplayTime = 0;     // To track when the last error was displayed
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);  // Initialize LCD display
 PressureTransducer sensor(PRESSURE_GAUGE_DEFAULT_ADDR, Serial2); // Initialize the Pressure sensor
@@ -127,16 +125,13 @@ void setup() {
     do {
         /*** Read in system switch states ***/
         SwitchStates currentStates = readSystemSwitchStates();
-    
         checkForValveContention(currentStates);
         checkTurboRotorOnWithoutPumpsPower(currentStates); // Ensure TURBO_ROTOR is OFF if PUMPS_POWER is OFF
 
         /*** Pressure Sensor configuration ***/
         configurePressureSensor();
-
-        /*** Update display ***/
         updateLCD();
-    } while (errorCount != 0);
+    } while (hasCriticalErrors());
 }
 
 void loop() {
@@ -338,8 +333,6 @@ void configurePressureSensor() {
 
             // check if initial pressure is approximately 1 ATM
             verifyInitialPressure();
-        } else {
-
         }
     }
 }
@@ -369,23 +362,40 @@ void displayPressureReading() {
 
 }
 
-void addErrorToQueue(ErrorCode code, ErrorCode level, String expected, String actual) {
-    // Check for existing error with the same code
-    for (unsigned int i = 0; i < errorQueue.count(); i++) {
-        Error currentError = errorQueue.peek(i);
-        if (currentError.code == code) {
-            // Error already exists, update it instead of adding a new entry
+void addErrorToQueue(ErrorCode code, ErrorLevel level, String expected, String actual) {
+    bool found = false;
+    int queueSize = errorQueue.count();
+    QueueList<Error> tempQueue;  // Temporary queue to hold non-matching errors
+
+    // Iterate through the existing queue to find and update the error
+    for (int i = 0; i < queueSize; i++) {
+        Error currentError = errorQueue.pop(); // Remove the front element
+
+        if (currentError.code == code && !found) {
+            // If error is found and we haven't updated it yet
+            found = true;
+            // Update the error details
             currentError.level = level;
             currentError.expected = expected;
             currentError.actual = actual;
-            currentError.asserted = true;  // Re-assert the error
+            currentError.asserted = true;
             currentError.timestamp = millis();
-            return;
+            // Push the updated error back into the temporary queue
+            tempQueue.push(currentError);
+        } else {
+            // If it's not the error we're looking for, just push it to the temp queue
+            tempQueue.push(currentError);
         }
     }
-    // If error does not exist, add a new one
-    Error newError = {code, level, expected, actual, true, millis()};
-    errorQueue.push(newError);
+
+    // If no existing error was found, create a new one and add it
+    if (!found) {
+        Error newError = {code, level, expected, actual, true, millis()};
+        tempQueue.push(newError);
+    }
+
+    // Replace the old queue with the updated queue
+    errorQueue = tempQueue;
 }
 
 void removeErrorFromQueue(ErrorCode code) {
@@ -426,6 +436,26 @@ bool isErrorPresent(ErrorCode code) {
         }
     }
     return false; // error wasn't in queue
+}
+
+bool hasCriticalErrors() { // Excludes 'WARNING' level items in queue
+    int queueSize = errorQueue.count();
+    QueueList<Error> tempQueue;
+    bool hasError = false;
+
+    // Examine each error in the queue
+    for (int i = 0; i < queueSize; i++) {
+        Error currentError = errorQueue.pop();  // Remove from the front to examine
+        tempQueue.push(currentError);  // Push it to a temporary queue to preserve the queue
+
+        if (currentError.level == ERROR && currentError.asserted) {
+            hasError = true;
+        }
+    }
+
+    // Restore the original queue
+    errorQueue = tempQueue;
+    return hasError;
 }
 
 // TODO: add state, pressure, etc.
