@@ -388,8 +388,11 @@ void removeErrorFromQueue(ErrorCode code) {
     for(int i = 0; i < queueSize; i++) {
         Error currentError = errorQueue.peek();
         errorQueue.pop(); // Remove the current error from the queue
-        if (currentError.code != code) {
-            errorQueue.push(currentError);
+        if (currentError.code == code){
+            // de-assert the error
+            currentError.asserted = false;
+        } else {
+            errorQueue.push(currentError); // re-add errors that are not the target
         }
         // if it's the error to remove, it is already removed by the pop() operation
     }
