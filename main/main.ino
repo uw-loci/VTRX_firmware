@@ -103,7 +103,6 @@ LiquidCrystal lcd(rs, en, d4, d5, d6, d7);  // Initialize LCD display
 PressureTransducer sensor(PRESSURE_GAUGE_DEFAULT_ADDR, Serial2); // Initialize the Pressure sensor
 
 void setup() {
-    lcd.begin(20, 4); // Set up the LCD's number of columns and rows
     
     // Initialize all switch status pins as inputs
     pinMode(PUMPS_POWER_ON_PIN, INPUT);
@@ -118,7 +117,8 @@ void setup() {
     Serial.begin(9600); // Initialize the serial for programming
     Serial1.begin(9600); // Initialize the serial to LabVIEW
     Serial2.begin(9600); // Initialize the serial to Pressure gauge (RS485)
-    
+    lcd.begin(20, 4); // Set up the LCD's number of columns and rows
+
     startupMsg();
     logPressureSensorInfo(); // Model and firmware version, hours of operation TODO:implement
 
@@ -126,7 +126,7 @@ void setup() {
         /*** Read in system switch states ***/
         SwitchStates currentStates = readSystemSwitchStates();
         checkForValveContention(currentStates);
-        checkTurboRotorOnWithoutPumpsPower(currentStates); // Ensure TURBO_ROTOR is OFF if PUMPS_POWER is OFF
+        checkTurboRotorOnWithoutPumpsPower(currentStates); // Raise warning if TURBO_ROTOR is ON while PUMPS_POWER is OFF
 
         /*** Pressure Sensor configuration ***/
         configurePressureSensor();
@@ -140,7 +140,6 @@ void loop() {
     SwitchStates currentStates = readSystemSwitchStates();
     checkForValveContention(currentStates);
     checkTurboRotorOnWithoutPumpsPower(currentStates); // Ensure TURBO_ROTOR is OFF if PUMPS_POWER is OFF
-
 
     updateLCD();
     delay(50);
@@ -295,7 +294,8 @@ void configurePressureSensor() {
         } else if (currentStatus.result.Str == "R") { 
             // Pressure Dose Limit Exceeded Warning
             addErrorToQueue(PRESSURE_DOSE_WARNING, WARNING, "972bOK", "PressureDoseExc");
-            if (!isErrorPresent(COLD_CATHODE_FAILURE) && !isErrorPresent(MICROPIRANI_FAILURE)) {
+            if (!isErrorPresent(COLD_CATHODE_FAILURE) && !isErrorPresent(MICROPIRANI_FAILURE) && !isErrorPresent(PRESSURE_UNIT_ERROR)) {
+                // Sensor is okay, and units have been set successfully
                 
                 /*** Set Safety Relay Configuration  ***/
                 CommandResult outputConfig = sensor.setupSetpoint("1E-4", "BELOW", "1.1E0", "ON"); // (pressure value, direction, hysteresis, enable status)
@@ -313,7 +313,8 @@ void configurePressureSensor() {
                 // check if initial pressure is approximately 1 ATM
                 verifyInitialPressure();
             }
-        } else if (currentStatus.resultStr == "O") { // sensor is "OK"
+        } else if (currentStatus.resultStr == "O" && !isErrorPresent(PRESSURE_UNIT_ERROR)) { 
+            // sensor is "OK"
             removeErrorFromQueue(COLD_CATHODE_FAILURE);
             removeErrorFromQueue(MICROPIRANI_FAILURE);
             removeErrorFromQueue(PRESSURE_DOSE_WARNING);
