@@ -146,14 +146,9 @@ void setup() {
 
 void loop() {
     updateLCD();
-    normalOperation();
     // vtrx_btest_020();
     // vtrx_btest_040();
-}
 
-// TODO: implmement this
-void normalOperation() {
-    
     // Read system switch states
     SwitchStates currentStates = readSystemSwitchStates();
 
