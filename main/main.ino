@@ -29,10 +29,10 @@ const int rs = 12, en = 10, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // 20x4 LCD pin conn
 *   System State representation
 */
 enum SystemState {   
+  INIT,
   ERROR,     
   STANDARD_PUMP_DOWN,
-  HVAC,
-  ARGON_PUMP_DOWN,
+  HIGH_VACUUM,
   REMOTE_CONTROL,
 };
 
@@ -228,7 +228,6 @@ void checkTurboRotorOnWithoutPumpsPower(const SwitchStates& states) {
 * Performs a simple check to validate whether the chamber is at atmospheric pressure or not.
 * Utilizes a 10% threshold.
 */
-// TODO: update this to use error queue instead of manual array
 void verifyInitialPressure() {
     double initialPressure = sensor.requestPressure(); // TODO: add default measureType to this function in 972b driver, currently this won't work as portrayed
     if (abs(initialPressure - EXPECTED_AMBIENT_PRESSURE) <= AMBIENT_PRESSURE_THRESHOLD) {
@@ -471,6 +470,27 @@ void updateLCD(){
         lcd.print("Exp: " + displayError.expected + " Act: " + displayError.actual);
         // Re-add the error to the end of the queue if it should be cycled
         errorQueue.push(displayError);
+    }
+}
+
+String formatPressure(String pressure) {
+    // Check if the string contains a negative exponent
+    int eIndex = pressure.indexOf('E');
+    if (pressure.substring(eIndex + 1, eIndex + 2) == "-"){
+        return pressure.substring(0,eIndex) + "E" + pressure.substring(eIndex + 1);
+    } else {
+        return pressure.substring(0, eIndex)
+    }
+}
+
+const char* getStateDescription(SystemState state) {
+    switch (state) {
+        case INIT:               return "Init";
+        case ERROR:              return "Error";
+        case STANDARD_PUMP_DOWN: return "PDOWN";
+        case HIGH_VACUUM:        return "HVAC";
+        case REMOTE_CONTROL:     return "REMOTE";
+        default:                 return "PDOWN";
     }
 }
 
