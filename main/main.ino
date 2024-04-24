@@ -19,11 +19,11 @@ const int rs = 12, en = 10, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // 20x4 LCD pin conn
 *	System constants
 **/
 #define FIRMWARE_VERSION                "v.1.0"
-#define EXPECTED_AMBIENT_PRESSURE       1013    // Nominal ambient pressure                         [millibar]
-#define AMBIENT_PRESSURE_TOLERANCE      101     // 10% tolerance level for ambient                  [millibar]
-#define PRESSURE_GAUGE_DEFAULT_ADDR     "253"   // Default 972b device address
-#define PRESSURE_READING_RETRY_LIMIT    3       // Attempts allowed before error. TODO: this should probably live in 972b driver
-#define AUTO_RESET_TIMEOUT              600000  // Time elapsed limit for non-persistent warnings   [milliseconds]
+#define EXPECTED_AMBIENT_PRESSURE       "1.01E+3"   // Nominal ambient pressure                         [millibar]
+#define AMBIENT_PRESSURE_TOLERANCE      101         // 10% tolerance level for ambient                  [millibar]
+#define PRESSURE_GAUGE_DEFAULT_ADDR     "253"       // Default 972b device address
+#define PRESSURE_READING_RETRY_LIMIT    3           // Attempts allowed before error. TODO: this should probably live in 972b driver
+#define AUTO_RESET_TIMEOUT              600000      // Time elapsed limit for non-persistent warnings   [milliseconds]
 
 /**
 *   System State representation
@@ -99,6 +99,7 @@ struct Error {
 QueueList<Error> errorQueue;
 unsigned int currentErrorIndex = 0;
 unsigned long lastErrorDisplayTime = 0;     // To track when the last error was displayed
+SystemState currentSystemState = STANDARD_PUMP_DOWN;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);  // Initialize LCD display
 PressureTransducer sensor(PRESSURE_GAUGE_DEFAULT_ADDR, Serial2); // Initialize the Pressure sensor
 
@@ -141,6 +142,8 @@ void loop() {
     checkForValveContention(currentStates);
     checkTurboRotorOnWithoutPumpsPower(currentStates); // Ensure TURBO_ROTOR is OFF if PUMPS_POWER is OFF
 
+
+
     updateLCD();
     delay(50);
 }
@@ -148,17 +151,34 @@ void loop() {
 // TODO: implement this
 void updateLCD() {
     unsigned long currentTime = millis();
+    int errorCount = errorQueue.count();
+    String stateString = getStateDescription(currentSystemState);
+    String errorCountString = "Err:" + String(errorCount);
+
+    // Determine the length of the state and error count strings to format the display properly
+    int stateStringLength = stateString.length();
+    int errorCountStringLength = errorCountString.length();
+    int spaceCount = 20 - (stateStringLength + errorCountStringLength);
+    // construct the full top row string
+    String fullTopLine = stateString + String(spaceCount, ' ') + errorCountString;
+
+    // Display the top line
+    lcd.setCursor(0, 0); // (col, row)
+    lcd.print(fullTopLine);
 
     if (currentTime - lastErrorDisplayTime >= 2000) { // Change errors every 2 seconds
         lastErrorDisplayTime = currentTime;
+        lcd.setCursor(0, 2); // Set the cursor for error details
         if (errorCount > 0) { // Check if there are errors to display
-            lcd.clear(); // Clear the LCD to update the error information
-            lcd.setCursor(0, 2);
+            Error displayError = errorQueue.peek(currentErrorIndex);
+            lcd.setCursor(0, 2); // (col, row)
             lcd.print("Err: " + String(errors[currentErrorIndex].code) + ": Act: " + errors[currentErrorIndex].actual);
             lcd.setCursor(0, 3);
             lcd.print("Err: " + String(errors[currentErrorIndex].code) + ": Exp: " + errors[currentErrorIndex].expected);
             
             currentErrorIndex = (currentErrorIndex + 1) % errorCount; // Cycle through errors
+        } else {
+            lcd.print("NOMINAL");
         }
     }
 }
@@ -216,7 +236,7 @@ void checkTurboRotorOnWithoutPumpsPower(const SwitchStates& states) {
     // Check if TURBO_ROTOR_ON is on while PUMPS_POWER_ON is off
     if (isTurboRotorOnWithoutPumps) {
         // This condition is potentially unsafe, add a warning to the error queue
-        addErrorToQueue(TURBO_ROTOR_ON_WARNING, WARNING, "PumpsON", "PumpsOff"); // TODO: decide formatting on this
+        addErrorToQueue(TURBO_ROTOR_ON_WARNING, WARNING, "RotorOFF", "RotorON"); // (code, level, expected, actual)
         Serial.println("WARNING: Turbo rotor is ON while Pumps Power is OFF");
     } else {
         // If the condition is not met, remove the warning from queue (if it exists)
@@ -229,25 +249,30 @@ void checkTurboRotorOnWithoutPumpsPower(const SwitchStates& states) {
 * Utilizes a 10% threshold.
 */
 void verifyInitialPressure() {
-    double initialPressure = sensor.requestPressure(); // TODO: add default measureType to this function in 972b driver, currently this won't work as portrayed
-    if (abs(initialPressure - EXPECTED_AMBIENT_PRESSURE) <= AMBIENT_PRESSURE_THRESHOLD) {
-        // initial pressure reading is within tolerance of expected value
-        Serial.print("Initial pressure reading: ");
-        Serial.print(initialPressure);
-        Serial.println("[mbar]");
-        // Remove the unexpected pressure error if it exists
-        removeErrorFromQueue(UNEXPECTED_PRESSURE_ERROR);
+    CommandResult initialPressure = sensor.requestPressure("PR3"); // TODO: add default measureType to this function in 972b driver, currently this won't work as portrayed
+    if (pressureResult.outcome) {    
+        if (abs(initialPressure - EXPECTED_AMBIENT_PRESSURE) <= AMBIENT_PRESSURE_THRESHOLD) {
+            // initial pressure reading is within tolerance of expected value
+            Serial.print("Initial pressure reading: ");
+            Serial.print(initialPressure.resultStr);
+            Serial.println(" [mbar]");
+            // Remove the unexpected pressure error if it exists
+            removeErrorFromQueue(UNEXPECTED_PRESSURE_ERROR);
+        } else {
+            // Pressure reading is not at ambient, add or update the unexpected pressure error in the queue
+            String expectedPressureStr = EXPECTED_AMBIENT_PRESSURE + "mbar";
+            String actualPressureStr = initialPressure.resultStr + "mbar";
+            Serial.print("WARNING: Unexpected initial pressure reading: ");
+            Serial.print(actualPressureStr);
+            // Add or update the error in the error queue (severity level = WARNING)
+            addErrorToQueue(UNEXPECTED_PRESSURE_ERROR, WARNING, expectedPressureStr, actualPressureStr);
+        }
     } else {
-        // Pressure reading is not at ambient, add or update the unexpected pressure error in the queue
-        String expectedPressureStr = String(EXPECTED_AMBIENT_PRESSURE) + " mbar";
-        String actualPressureStr = String(initialPressure) + " mbar";
-        Serial.print("WARNING: Unexpected initial pressure reading: ");
-        Serial.print(actualPressureStr);
-        Serial.println(" mbar");
-        // Add or update the error in the error queue (severity level = WARNING)
-        addErrorToQueue(UNEXPECTED_PRESSURE_ERROR, WARNING, expectedPressureStr, actualPressureStr);
+        // The outcome is false, there was a nack error
+        Serial.print("ERROR: ");
+        Serial.println(pressureResult.resultStr);
+        addErrorToQueue(PRESSURE_NACK_ERROR, ERROR, EXPECTED_AMBIENT_PRESSURE, pressureResult.resultStr);
     }
-    return;
 }
 
 // In progress
@@ -297,7 +322,7 @@ void configurePressureSensor() {
                 // Sensor is okay, and units have been set successfully
                 
                 /*** Set Safety Relay Configuration  ***/
-                CommandResult outputConfig = sensor.setupSetpoint("1E-4", "BELOW", "1.1E0", "ON"); // (pressure value, direction, hysteresis, enable status)
+                CommandResult outputConfig = sensor.setupSetpoint("1E-4", "BELOW", "1.1E0", "ON"); // (pressure threshold, direction, hysteresis, enable status)
 
                 if (!relayConfig.outcome) {
                     // Safety relay configuration failed
@@ -309,7 +334,7 @@ void configurePressureSensor() {
                     Serial.println("Pressure sensor safety relay configured successfully");
                 }
 
-                // check if initial pressure is approximately 1 ATM
+                /***   check if initial pressure is approximately 1 ATM   ***/
                 verifyInitialPressure();
             }
         } else if (currentStatus.resultStr == "O" && !isErrorPresent(PRESSURE_UNIT_ERROR)) { 
@@ -458,31 +483,11 @@ bool hasCriticalErrors() { // Excludes 'WARNING' level items in queue
     return hasError;
 }
 
-// TODO: add state, pressure, etc.
-void updateLCD(){
-    if (!errorQueue.isEmpty()) {
-        // Get the next error to display
-        Error displayError = errorQueue.pop();
-        lcd.clear();
-        lcd.setCursor(0, 0);
-        lcd.print("Error: " + String(displayError.code));
-        lcd.setCursor(0, 1);
-        lcd.print("Exp: " + displayError.expected + " Act: " + displayError.actual);
-        // Re-add the error to the end of the queue if it should be cycled
-        errorQueue.push(displayError);
-    }
-}
-
 String formatPressure(String pressure) {
-    // Check if the string contains a negative exponent
-    int eIndex = pressure.indexOf('E');
-    if (pressure.substring(eIndex + 1, eIndex + 2) == "-"){
-        return pressure.substring(0,eIndex) + "E" + pressure.substring(eIndex + 1);
-    } else {
-        return pressure.substring(0, eIndex)
-    }
+    return pressure + "mbar"
 }
 
+// Function to return string value associated with the system state 
 const char* getStateDescription(SystemState state) {
     switch (state) {
         case INIT:               return "Init";
