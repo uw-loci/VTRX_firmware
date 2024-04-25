@@ -249,7 +249,7 @@ void checkTurboRotorOnWithoutPumpsPower(const SwitchStates& states) {
 * Utilizes a 10% threshold.
 */
 void verifyInitialPressure() {
-    CommandResult initialPressure = sensor.requestPressure("PR3"); // TODO: add default measureType to this function in 972b driver, currently this won't work as portrayed
+    CommandResult initialPressure = sensor.requestPressure("PR3"); 
     if (pressureResult.outcome) {    
         if (abs(initialPressure - EXPECTED_AMBIENT_PRESSURE) <= AMBIENT_PRESSURE_THRESHOLD) {
             // initial pressure reading is within tolerance of expected value
