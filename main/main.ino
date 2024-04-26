@@ -19,8 +19,8 @@ const int rs = 12, en = 10, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // 20x4 LCD pin conn
 *	System constants
 **/
 #define FIRMWARE_VERSION                "v.1.0"
-#define EXPECTED_AMBIENT_PRESSURE       "1.01E+3"   // Nominal ambient pressure                         [millibar]
-#define AMBIENT_PRESSURE_TOLERANCE      101         // 10% tolerance level for ambient                  [millibar]
+#define EXPECTED_AMBIENT_PRESSURE       1010.0      // Nominal ambient pressure                         [millibar]
+#define AMBIENT_PRESSURE_THRESHOLD      200.0       // 20% tolerance level for ambient                  [millibar]
 #define PRESSURE_GAUGE_DEFAULT_ADDR     "253"       // Default 972b device address
 #define PRESSURE_READING_RETRY_LIMIT    3           // Attempts allowed before error. TODO: this should probably live in 972b driver
 #define AUTO_RESET_TIMEOUT              600000      // Time elapsed limit for non-persistent warnings   [milliseconds]
@@ -251,7 +251,18 @@ void checkTurboRotorOnWithoutPumpsPower(const SwitchStates& states) {
 void verifyInitialPressure() {
     CommandResult initialPressure = sensor.requestPressure("PR3"); 
     if (pressureResult.outcome) {    
-        if (abs(initialPressure - EXPECTED_AMBIENT_PRESSURE) <= AMBIENT_PRESSURE_THRESHOLD) {
+        // Check if response was invalid prior to conversion
+        if (isnan(pressureValue)) {
+            Serial.print("ERROR: ");
+            Serial.println(pressureResult.resultStr);
+            addErrorToQueue(PRESSURE_NACK_ERROR, ERROR, EXPECTED_AMBIENT_PRESSURE, pressureResult.resultStr);
+            return;
+        }
+
+        // convert resulting pressure string to double
+        double pressureValue = sciToDouble(initialPressure.resultStr);
+        
+        if (abs(pressureValue - EXPECTED_AMBIENT_PRESSURE) <= AMBIENT_PRESSURE_THRESHOLD) {
             // initial pressure reading is within tolerance of expected value
             Serial.print("Initial pressure reading: ");
             Serial.print(initialPressure.resultStr);
@@ -267,12 +278,7 @@ void verifyInitialPressure() {
             // Add or update the error in the error queue (severity level = WARNING)
             addErrorToQueue(UNEXPECTED_PRESSURE_ERROR, WARNING, expectedPressureStr, actualPressureStr);
         }
-    } else {
-        // The outcome is false, there was a nack error
-        Serial.print("ERROR: ");
-        Serial.println(pressureResult.resultStr);
-        addErrorToQueue(PRESSURE_NACK_ERROR, ERROR, EXPECTED_AMBIENT_PRESSURE, pressureResult.resultStr);
-    }
+    } 
 }
 
 // In progress
@@ -497,6 +503,13 @@ const char* getStateDescription(SystemState state) {
         case REMOTE_CONTROL:     return "REMOTE";
         default:                 return "PDOWN";
     }
+}
+
+// Function to parse string and perform conversion to double 
+double sciToDouble(String sciString) {
+    char buffer[sciString.length() + 1]; // Create a buffer to store the string as a char array
+    sciString.toCharArray(buffer, sizeof(buffer)); // Convert string to char array
+    return strtod(buffer, NULL); // Convert char array to double handling scientific notation
 }
 
 // TODO
