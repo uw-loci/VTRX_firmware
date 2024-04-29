@@ -1,5 +1,5 @@
 #include <LiquidCrystal.h>  // Include LCD library
-#include <QueueList.h> // Include queue data structure library
+#include "QueueList.h" // Include queue data structure library
 #include "972b.h"  // Include the pressure transducer library
 
 /**
@@ -29,8 +29,7 @@ const int rs = 12, en = 10, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // 20x4 LCD pin conn
 *   System State representation
 */
 enum SystemState {   
-  INIT,
-  ERROR,     
+  INIT,    
   STANDARD_PUMP_DOWN,
   HIGH_VACUUM,
   REMOTE_CONTROL,
@@ -115,13 +114,13 @@ void setup() {
     pinMode(ARGON_GATE_VALVE_CLOSED_PIN, INPUT);
     pinMode(ARGON_GATE_VALVE_OPEN_PIN, INPUT); 
     
-    Serial.begin(9600); // Initialize the serial for programming
+    Serial.begin(9600); // Initialize the serial for programming and logging
     Serial1.begin(9600); // Initialize the serial to LabVIEW
     Serial2.begin(9600); // Initialize the serial to Pressure gauge (RS485)
     lcd.begin(20, 4); // Set up the LCD's number of columns and rows
 
     startupMsg();
-    logPressureSensorInfo(); // Model and firmware version, hours of operation TODO:implement
+    //logPressureSensorInfo(); // Model and firmware version, hours of operation TODO:implement
 
     do {
         /*** Read in system switch states ***/
@@ -249,30 +248,29 @@ void checkTurboRotorOnWithoutPumpsPower(const SwitchStates& states) {
 * Utilizes a 10% threshold.
 */
 void verifyInitialPressure() {
-    CommandResult initialPressure = sensor.requestPressure("PR3"); 
+    CommandResult pressureResult = sensor.requestPressure("PR3"); 
     if (pressureResult.outcome) {    
+        
+        // convert resulting pressure string to double
+        double pressureValue = PressureTransducer::sciToDouble(pressureResult.resultStr);
+
         // Check if response was invalid prior to conversion
         if (isnan(pressureValue)) {
             Serial.print("ERROR: ");
             Serial.println(pressureResult.resultStr);
             addErrorToQueue(PRESSURE_NACK_ERROR, ERROR, EXPECTED_AMBIENT_PRESSURE, pressureResult.resultStr);
             return;
-        }
-
-        // convert resulting pressure string to double
-        double pressureValue = sciToDouble(initialPressure.resultStr);
-        
-        if (abs(pressureValue - EXPECTED_AMBIENT_PRESSURE) <= AMBIENT_PRESSURE_THRESHOLD) {
+        } else if (abs(pressureValue - EXPECTED_AMBIENT_PRESSURE) <= AMBIENT_PRESSURE_THRESHOLD) {
             // initial pressure reading is within tolerance of expected value
             Serial.print("Initial pressure reading: ");
-            Serial.print(initialPressure.resultStr);
+            Serial.print(pressureResult.resultStr);
             Serial.println(" [mbar]");
             // Remove the unexpected pressure error if it exists
             removeErrorFromQueue(UNEXPECTED_PRESSURE_ERROR);
         } else {
             // Pressure reading is not at ambient, add or update the unexpected pressure error in the queue
-            String expectedPressureStr = EXPECTED_AMBIENT_PRESSURE + "mbar";
-            String actualPressureStr = initialPressure.resultStr + "mbar";
+            String expectedPressureStr = String(EXPECTED_AMBIENT_PRESSURE) + "mbar";
+            String actualPressureStr = pressureResult.resultStr + "mbar";
             Serial.print("WARNING: Unexpected initial pressure reading: ");
             Serial.print(actualPressureStr);
             // Add or update the error in the error queue (severity level = WARNING)
@@ -328,7 +326,7 @@ void configurePressureSensor() {
                 // Sensor is okay, and units have been set successfully
                 
                 /*** Set Safety Relay Configuration  ***/
-                CommandResult outputConfig = sensor.setupSetpoint("1E-4", "BELOW", "1.1E0", "ON"); // (pressure threshold, direction, hysteresis, enable status)
+                CommandResult relayConfig = sensor.setupSetpoint("1E-4", "BELOW", "1.1E0", "ON"); // (pressure threshold, direction, hysteresis, enable status)
 
                 if (!relayConfig.outcome) {
                     // Safety relay configuration failed
@@ -350,7 +348,7 @@ void configurePressureSensor() {
             removeErrorFromQueue(PRESSURE_DOSE_WARNING);
         
             /*** Set Safety Relay Configuration  ***/
-            CommandResult outputConfig = sensor.setupSetpoint("1E-4", "BELOW", "1.1E0", "ON"); // (pressure setpoint value, direction, hysteresis, enable status)
+            CommandResult relayConfig = sensor.setupSetpoint("1E-4", "BELOW", "1.1E0", "ON"); // (pressure setpoint value, direction, hysteresis, enable status)
 
             if (!relayConfig.outcome) {
                 // Safety relay configuration failed
@@ -414,7 +412,7 @@ void addErrorToQueue(ErrorCode code, ErrorLevel level, String expected, String a
             // Push the updated error back into the temporary queue
             tempQueue.push(currentError);
         } else {
-            // If it's not the error we're looking for, just push it to the temp queue
+            // If it's not the error we're looking for, push it to the temp queue
             tempQueue.push(currentError);
         }
     }
@@ -462,7 +460,7 @@ bool isErrorPresent(ErrorCode code) {
     // Iterate through the error queue to check if the specified error code is present
     for (unsigned int i = 0; i < errorQueue.count(); i++) {
         Error currentError = errorQueue.peek(i);
-        if (currentError.code == errorCode && currentError.asserted) {
+        if (currentError.code == code && currentError.asserted) {
             return true; // found it
         }
     }
@@ -490,26 +488,18 @@ bool hasCriticalErrors() { // Excludes 'WARNING' level items in queue
 }
 
 String formatPressure(String pressure) {
-    return pressure + "mbar"
+    return pressure + "mbar";
 }
 
 // Function to return string value associated with the system state 
 const char* getStateDescription(SystemState state) {
     switch (state) {
         case INIT:               return "Init";
-        case ERROR:              return "Error";
         case STANDARD_PUMP_DOWN: return "PDOWN";
         case HIGH_VACUUM:        return "HVAC";
         case REMOTE_CONTROL:     return "REMOTE";
         default:                 return "PDOWN";
     }
-}
-
-// Function to parse string and perform conversion to double 
-double sciToDouble(String sciString) {
-    char buffer[sciString.length() + 1]; // Create a buffer to store the string as a char array
-    sciString.toCharArray(buffer, sizeof(buffer)); // Convert string to char array
-    return strtod(buffer, NULL); // Convert char array to double handling scientific notation
 }
 
 // TODO
