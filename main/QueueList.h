@@ -67,6 +67,9 @@ class QueueList {
     // get an item from the queue.
     T peek () const;
 
+    // get an item from the specified index in the queue
+    T at(int index) const;
+
     // check if the queue is empty.
     bool isEmpty () const;
 
@@ -182,6 +185,21 @@ T QueueList<T>::peek () const {
 
   // return the item of the head node.
   return head->item;
+}
+
+template<typename T>
+T QueueList<T>::at(int index) const {
+  if (index < 0 || index >= size) {
+    exit("QUEUE: Index out of bounds");
+    return T();
+  }
+
+  link current = head;
+  for (int i = 0; i < index; i++) { // traverse the queue until the index is reached
+    current = current->next;
+  }
+
+  return current->item; // Return the item at the specified index
 }
 
 // check if the queue is empty.
