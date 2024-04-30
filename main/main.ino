@@ -1,3 +1,5 @@
+#include <972b.h>
+
 #include <LiquidCrystal.h>  // Include LCD library
 #include "QueueList.h" // Include queue data structure library
 #include "972b.h"  // Include the pressure transducer library
@@ -169,7 +171,7 @@ void updateLCD() {
         lastErrorDisplayTime = currentTime;
         lcd.setCursor(0, 2); // Set the cursor for error details
         if (errorCount > 0) { // Check if there are errors to display
-            Error displayError = errorQueue.peek(currentErrorIndex);
+            Error displayError = errorQueue.at(currentErrorIndex);
             lcd.setCursor(0, 2); // (col, row)
             lcd.print("Err: " + String(errors[currentErrorIndex].code) + ": Act: " + errors[currentErrorIndex].actual);
             lcd.setCursor(0, 3);
@@ -319,7 +321,7 @@ void configurePressureSensor() {
         } else if (currentStatus.resultStr == "M") { 
             // Micropirani Failure
             addErrorToQueue(MICROPIRANI_FAILURE, ERROR, "972bOK", "MicroPiraniFail");
-        } else if (currentStatus.result.Str == "R") { 
+        } else if (currentStatus.resultStr == "R") { 
             // Pressure Dose Limit Exceeded Warning
             addErrorToQueue(PRESSURE_DOSE_WARNING, WARNING, "972bOK", "PressureDoseExc");
             if (!isErrorPresent(COLD_CATHODE_FAILURE) && !isErrorPresent(MICROPIRANI_FAILURE) && !isErrorPresent(PRESSURE_UNIT_ERROR)) {
@@ -459,7 +461,7 @@ void cleanExpiredErrors() {
 bool isErrorPresent(ErrorCode code) {
     // Iterate through the error queue to check if the specified error code is present
     for (unsigned int i = 0; i < errorQueue.count(); i++) {
-        Error currentError = errorQueue.peek(i);
+        Error currentError = errorQueue.at(i);
         if (currentError.code == code && currentError.asserted) {
             return true; // found it
         }
