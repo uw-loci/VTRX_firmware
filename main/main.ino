@@ -1,5 +1,3 @@
-#include <972b.h>
-
 #include <LiquidCrystal.h>  // Include LCD library
 #include "QueueList.h" // Include queue data structure library
 #include "972b.h"  // Include the pressure transducer library
@@ -21,11 +19,16 @@ const int rs = 12, en = 10, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // 20x4 LCD pin conn
 *	System constants
 **/
 #define FIRMWARE_VERSION                "v.1.0"
-#define EXPECTED_AMBIENT_PRESSURE       1010.0      // Nominal ambient pressure                         [millibar]
-#define AMBIENT_PRESSURE_THRESHOLD      200.0       // 20% tolerance level for ambient                  [millibar]
+#define EXPECTED_AMBIENT_PRESSURE       1010.0      // Nominal ambient pressure [millibar]
+#define AMBIENT_PRESSURE_THRESHOLD      200.0       // 20% tolerance level for ambient [millibar]
 #define PRESSURE_GAUGE_DEFAULT_ADDR     "253"       // Default 972b device address
 #define PRESSURE_READING_RETRY_LIMIT    3           // Attempts allowed before error. TODO: this should probably live in 972b driver
 #define AUTO_RESET_TIMEOUT              600000      // Time elapsed limit for non-persistent warnings   [milliseconds]
+// "1E-4", "BELOW", "1.1E0", "ON"
+#define SAFETY_RELAY_THRESHOLD          "1E-4"      // Pressure threshold [bar]
+#define SAFETY_RELAY_DIRECTION          "BELOW"     // Determines whether the relay is energized above or below the setpoint value
+#define SAFETY_RELAY_HYSTERESIS_VALUE   "1.1E-4"    // The pressure value at which the setpoint relay will be de-energized
+#define SAFETY_RELAY_ENABLE             "ON"
 
 /**
 *   System State representation
@@ -159,7 +162,7 @@ void updateLCD() {
     // Determine the length of the state and error count strings to format the display properly
     int stateStringLength = stateString.length();
     int errorCountStringLength = errorCountString.length();
-    int spaceCount = 20 - (stateStringLength + errorCountStringLength);
+    int spaceCount = 20 - (stateStringLength + errorCountStringLength); 
     // construct the full top row string
     String fullTopLine = stateString + String(spaceCount, ' ') + errorCountString;
 
@@ -171,11 +174,11 @@ void updateLCD() {
         lastErrorDisplayTime = currentTime;
         lcd.setCursor(0, 2); // Set the cursor for error details
         if (errorCount > 0) { // Check if there are errors to display
-            Error displayError = errorQueue.at(currentErrorIndex);
             lcd.setCursor(0, 2); // (col, row)
-            lcd.print("Err: " + String(errors[currentErrorIndex].code) + ": Act: " + errors[currentErrorIndex].actual);
+            Error displayError = errorQueue.at(currentErrorIndex);
+            lcd.print("Exp: " + String(displayError.expected));
             lcd.setCursor(0, 3);
-            lcd.print("Err: " + String(errors[currentErrorIndex].code) + ": Exp: " + errors[currentErrorIndex].expected);
+            lcd.print("Act: " + String(displayError.actual));
             
             currentErrorIndex = (currentErrorIndex + 1) % errorCount; // Cycle through errors
         } else {
@@ -328,7 +331,12 @@ void configurePressureSensor() {
                 // Sensor is okay, and units have been set successfully
                 
                 /*** Set Safety Relay Configuration  ***/
-                CommandResult relayConfig = sensor.setupSetpoint("1E-4", "BELOW", "1.1E0", "ON"); // (pressure threshold, direction, hysteresis, enable status)
+                CommandResult relayConfig = sensor.setupSetpoint(
+                    SAFETY_RELAY_THRESHOLD, 
+                    SAFETY_RELAY_DIRECTION, 
+                    SAFETY_RELAY_HYSTERESIS_VALUE, 
+                    SAFETY_RELAY_ENABLE
+                ); // (pressure threshold, direction, hysteresis, enable status)
 
                 if (!relayConfig.outcome) {
                     // Safety relay configuration failed
@@ -350,7 +358,12 @@ void configurePressureSensor() {
             removeErrorFromQueue(PRESSURE_DOSE_WARNING);
         
             /*** Set Safety Relay Configuration  ***/
-            CommandResult relayConfig = sensor.setupSetpoint("1E-4", "BELOW", "1.1E0", "ON"); // (pressure setpoint value, direction, hysteresis, enable status)
+            CommandResult relayConfig = sensor.setupSetpoint(
+                SAFETY_RELAY_THRESHOLD, 
+                SAFETY_RELAY_DIRECTION, 
+                SAFETY_RELAY_HYSTERESIS_VALUE, 
+                SAFETY_RELAY_ENABLE
+            ); // (pressure threshold, direction, hysteresis, enable status)
 
             if (!relayConfig.outcome) {
                 // Safety relay configuration failed
