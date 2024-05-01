@@ -103,6 +103,7 @@ struct Error {
 QueueList<Error> errorQueue;
 unsigned int currentErrorIndex = 0;
 unsigned long lastErrorDisplayTime = 0;     // To track when the last error was displayed
+double currentPressure = 0.0;
 SystemState currentSystemState = STANDARD_PUMP_DOWN;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);  // Initialize LCD display
 PressureTransducer sensor(PRESSURE_GAUGE_DEFAULT_ADDR, Serial2); // Initialize the Pressure sensor
@@ -130,10 +131,12 @@ void setup() {
     do {
         /*** Read in system switch states ***/
         SwitchStates currentStates = readSystemSwitchStates();
+        
+        /*** Perform system checks ***/
         checkForValveContention(currentStates);
         checkTurboRotorOnWithoutPumpsPower(currentStates); // Raise warning if TURBO_ROTOR is ON while PUMPS_POWER is OFF
 
-        /*** Pressure Sensor configuration ***/
+        /*** Pressure Sensor config ***/
         configurePressureSensor();
         updateLCD();
     } while (hasCriticalErrors());
@@ -146,9 +149,16 @@ void loop() {
     checkForValveContention(currentStates);
     checkTurboRotorOnWithoutPumpsPower(currentStates); // Ensure TURBO_ROTOR is OFF if PUMPS_POWER is OFF
 
+    // Update current pressure
+    updateCurrentPressure();
 
-
+    // Update the LCD with the latest info
     updateLCD();
+
+    // Clean up expired errors periodically
+    cleanExpiredErrors();
+
+    // slow down looping speed a bit
     delay(50);
 }
 
@@ -170,6 +180,10 @@ void updateLCD() {
     lcd.setCursor(0, 0); // (col, row)
     lcd.print(fullTopLine);
 
+    // Display pressure reading
+    lcd.setCursor(0, 1);
+    lcd.print("Pressure:" + formatPressure(currentPressure)); // 
+
     if (currentTime - lastErrorDisplayTime >= 2000) { // Change errors every 2 seconds
         lastErrorDisplayTime = currentTime;
         lcd.setCursor(0, 2); // Set the cursor for error details
@@ -182,7 +196,10 @@ void updateLCD() {
             
             currentErrorIndex = (currentErrorIndex + 1) % errorCount; // Cycle through errors
         } else {
+            lcd.setCursor(0, 2);
             lcd.print("NOMINAL");
+            lcd.setCursor(0, 3);
+            lcd.print("");
         }
     }
 }
@@ -255,9 +272,10 @@ void checkTurboRotorOnWithoutPumpsPower(const SwitchStates& states) {
 void verifyInitialPressure() {
     CommandResult pressureResult = sensor.requestPressure("PR3"); 
     if (pressureResult.outcome) {    
-        
+        removeErrorFromQueue(PRESSURE_SENSE_ERROR); // clear past errors
         // convert resulting pressure string to double
         double pressureValue = PressureTransducer::sciToDouble(pressureResult.resultStr);
+        currentPressure = pressureValue; // Update the global value
 
         // Check if response was invalid prior to conversion
         if (isnan(pressureValue)) {
@@ -281,10 +299,44 @@ void verifyInitialPressure() {
             // Add or update the error in the error queue (severity level = WARNING)
             addErrorToQueue(UNEXPECTED_PRESSURE_ERROR, WARNING, expectedPressureStr, actualPressureStr);
         }
-    } 
+
+    } else {
+        Serial.println("Failed to read pressure: " + pressureResult.resultStr);
+        addErrorToQueue(PRESSURE_SENSE_ERROR, ERROR, "972bOK", pressureResult.resultStr);
+    }
 }
 
-// In progress
+/**
+ * Updates the current pressure reading from the sensor.
+ * Logs and handles errors related to pressure reading.
+ */
+void updateCurrentPressure() {
+    CommandResult pressureResult = sensor.requestPressure("PR3"); // Assuming PR1 is the pressure reading command
+
+    if (pressureResult.outcome) {
+        removeErrorFromQueue(PRESSURE_SENSE_ERROR); // clear past errors
+        // Convert resulting pressure string to double
+        double newPressureValue = PressureTransducer::sciToDouble(pressureResult.resultStr);
+
+        // Check if the response was invalid prior to conversion
+        if (isnan(newPressureValue)) {
+            Serial.print("ERROR: Invalid pressure reading - ");
+            Serial.println(pressureResult.resultStr);
+            addErrorToQueue(PRESSURE_NACK_ERROR, ERROR, "Valid Pressure", pressureResult.resultStr);
+        } else {
+            // Update the global currentPressure variable
+            currentPressure = newPressureValue;
+            Serial.print("Current pressure reading: ");
+            Serial.print(currentPressure);
+            Serial.println(" mbar");
+        }
+    } else {
+        // Log error if reading failed
+        Serial.println("Failed to read pressure: " + pressureResult.resultStr);
+        addErrorToQueue(PRESSURE_SENSE_ERROR, ERROR, "972bOK", pressureResult.resultStr);
+    }
+}
+
 void configurePressureSensor() {
 
     /*** Set units to MBAR ***/
@@ -399,11 +451,6 @@ void startupMsg() {
     lcd.print(messageLine2);
     delay(1000);  // Display the message for 1000 milliseconds or one second
     lcd.clear();
-}
-
-// TODO: 
-void displayPressureReading() {
-
 }
 
 void addErrorToQueue(ErrorCode code, ErrorLevel level, String expected, String actual) {
