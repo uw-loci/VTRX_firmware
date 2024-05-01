@@ -148,16 +148,20 @@ void loop() {
 
     // Read system switch states
     SwitchStates currentStates = readSystemSwitchStates();
+    
+    // safety valve check
     checkForValveContention(currentStates);
+    
+    // Turbo rotor safety check
     checkTurboRotorOnWithoutPumpsPower(currentStates); // Ensure TURBO_ROTOR is OFF if PUMPS_POWER is OFF
 
     // Update current pressure
-    updateCurrentPressure();
+    getCurrentPressure();
 
     // Update the LCD with the latest info
     updateLCD();
 
-    // Clean up expired errors periodically
+    // Clean up any temporary errors that have expired
     cleanExpiredErrors();
 
     // slow down looping speed a bit
@@ -292,7 +296,9 @@ void verifyInitialPressure() {
             Serial.println(" [mbar]");
             // Remove the unexpected pressure error if it exists
             removeErrorFromQueue(UNEXPECTED_PRESSURE_ERROR);
+            removeErrorFromQueue(PRESSURE_NACK_ERROR);
         } else {
+            removeErrorFromQueue(PRESSURE_NACK_ERROR); // Remove any previous nack error
             // Pressure reading is not at ambient, add or update the unexpected pressure error in the queue
             String expectedPressureStr = String(EXPECTED_AMBIENT_PRESSURE) + "mbar";
             String actualPressureStr = pressureResult.resultStr + "mbar";
@@ -312,11 +318,11 @@ void verifyInitialPressure() {
  * Updates the current pressure reading from the sensor.
  * Logs and handles errors related to pressure reading.
  */
-void updateCurrentPressure() {
+void getCurrentPressure() {
     CommandResult pressureResult = sensor.requestPressure("PR3"); // Assuming PR1 is the pressure reading command
 
     if (pressureResult.outcome) {
-        removeErrorFromQueue(PRESSURE_SENSE_ERROR); // clear past errors
+        removeErrorFromQueue(PRESSURE_SENSE_ERROR); // clear any past errors
         // Convert resulting pressure string to double
         double newPressureValue = PressureTransducer::sciToDouble(pressureResult.resultStr);
 
@@ -326,6 +332,7 @@ void updateCurrentPressure() {
             Serial.println(pressureResult.resultStr);
             addErrorToQueue(PRESSURE_NACK_ERROR, ERROR, "Valid Pressure", pressureResult.resultStr);
         } else {
+            removeErrorFromQueue(PRESSURE_NACK_ERROR);
             // Update the global currentPressure variable
             currentPressure = newPressureValue;
             Serial.print("Current pressure reading: ");
