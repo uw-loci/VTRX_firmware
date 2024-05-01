@@ -104,7 +104,7 @@ QueueList<Error> errorQueue;
 unsigned int currentErrorIndex = 0;
 unsigned long lastErrorDisplayTime = 0;     // To track when the last error was displayed
 double currentPressure = 0.0;
-SystemState currentSystemState = STANDARD_PUMP_DOWN;
+SystemState currentSystemState = INIT;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);  // Initialize LCD display
 PressureTransducer sensor(PRESSURE_GAUGE_DEFAULT_ADDR, Serial2); // Initialize the Pressure sensor
 
@@ -138,6 +138,8 @@ void setup() {
 
         /*** Pressure Sensor config ***/
         configurePressureSensor();
+
+        // Update the LCD with the latest info
         updateLCD();
     } while (hasCriticalErrors());
 }
@@ -329,6 +331,13 @@ void updateCurrentPressure() {
             Serial.print("Current pressure reading: ");
             Serial.print(currentPressure);
             Serial.println(" mbar");
+
+            // Determine the system state based on the pressure value
+            if (currentPressure <= 1.00E-4) {
+                currentSystemState = HIGH_VACUUM;
+            } else {
+                currentSystemState = STANDARD_PUMP_DOWN;
+            }
         }
     } else {
         // Log error if reading failed
