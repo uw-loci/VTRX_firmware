@@ -287,7 +287,7 @@ void verifyInitialPressure() {
         if (isnan(pressureValue)) {
             Serial.print("ERROR: ");
             Serial.println(pressureResult.resultStr);
-            addErrorToQueue(PRESSURE_NACK_ERROR, ERROR, EXPECTED_AMBIENT_PRESSURE, pressureResult.resultStr);
+            addErrorToQueue(PRESSURE_NACK_ERROR, ERROR, String(EXPECTED_AMBIENT_PRESSURE), pressureResult.resultStr);
             return;
         } else if (abs(pressureValue - EXPECTED_AMBIENT_PRESSURE) <= AMBIENT_PRESSURE_THRESHOLD) {
             // initial pressure reading is within tolerance of expected value
