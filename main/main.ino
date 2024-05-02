@@ -188,7 +188,7 @@ void updateLCD() {
 
     // Display pressure reading
     lcd.setCursor(0, 1);
-    lcd.print("Pressure:" + formatPressure(currentPressure)); // 
+    lcd.print("Pressure:" + String(currentPressure) + " mbar");
 
     if (currentTime - lastErrorDisplayTime >= 2000) { // Change errors every 2 seconds
         lastErrorDisplayTime = currentTime;
@@ -339,7 +339,7 @@ void getCurrentPressure() {
             Serial.print(currentPressure);
             Serial.println(" mbar");
 
-            // Determine the system state based on the pressure value
+            // Determine the system state based on the global pressure value
             if (currentPressure <= 1.00E-4) {
                 currentSystemState = HIGH_VACUUM;
             } else {
@@ -404,7 +404,7 @@ void configurePressureSensor() {
                     SAFETY_RELAY_DIRECTION, 
                     SAFETY_RELAY_HYSTERESIS_VALUE, 
                     SAFETY_RELAY_ENABLE
-                ); // (pressure threshold, direction, hysteresis, enable status)
+                );
 
                 if (!relayConfig.outcome) {
                     // Safety relay configuration failed
@@ -431,7 +431,7 @@ void configurePressureSensor() {
                 SAFETY_RELAY_DIRECTION, 
                 SAFETY_RELAY_HYSTERESIS_VALUE, 
                 SAFETY_RELAY_ENABLE
-            ); // (pressure threshold, direction, hysteresis, enable status)
+            );
 
             if (!relayConfig.outcome) {
                 // Safety relay configuration failed
@@ -578,12 +578,4 @@ const char* getStateDescription(SystemState state) {
         case REMOTE_CONTROL:     return "REMOTE";
         default:                 return "PDOWN";
     }
-}
-
-// TODO
-void vtrx_btest_020() {
-}
-
-// TODO
-void vtrx_btest_040() {
 }
