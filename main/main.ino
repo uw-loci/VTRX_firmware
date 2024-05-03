@@ -172,35 +172,59 @@ void loop() {
 void updateLCD() {
     unsigned long currentTime = millis();
     int errorCount = errorQueue.count();
+
+    // Ensure that state and error count strings do not exceed 20 characters
     String stateString = getStateDescription(currentSystemState);
     String errorCountString = "Err:" + String(errorCount);
 
     // Determine the length of the state and error count strings to format the display properly
-    int stateStringLength = stateString.length();
-    int errorCountStringLength = errorCountString.length();
-    int spaceCount = 20 - (stateStringLength + errorCountStringLength); 
-    // construct the full top row string
-    String fullTopLine = stateString + String(spaceCount, ' ') + errorCountString;
+    int totalLength = stateString.length() + errorCountString.length();
+    String fullTopLine;
+
+    if (totalLength <= 20) {
+        // Calculate spaces to add
+        int spaceCount = 20 - totalLength;
+        fullTopLine = stateString + String(spaceCount, ' ') + errorCountString;
+    } else {
+        // Truncate the state to fit the error count within 20 characters
+        int truncateLength = 20 - errorCountString.length();
+        stateString = stateString.substring(0, truncateLength);
+        fullTopLine = stateString + errorCountString;
+    }
 
     // Display the top line
     lcd.setCursor(0, 0); // (col, row)
     lcd.print(fullTopLine);
 
+    String pressureLine = "Pressure:" + String(currentPressure) + " mbar";
+    if (pressureLine.length() > 20) { 
+        pressureLine = pressureLine.substring(0, 20); // TODO: prioritize resultStr over "Pressure:" characters
+    }
+
     // Display pressure reading
     lcd.setCursor(0, 1);
-    lcd.print("Pressure:" + String(currentPressure) + " mbar");
+    lcd.print(pressureLine);
 
     if (currentTime - lastErrorDisplayTime >= 2000) { // Change errors every 2 seconds
         lastErrorDisplayTime = currentTime;
         lcd.setCursor(0, 2); // Set the cursor for error details
-        if (errorCount > 0) { // Check if there are errors to display
-            lcd.setCursor(0, 2); // (col, row)
+        if (errorCount > 0) { 
+            // Show the expected and actual values for the current error
             Error displayError = errorQueue.at(currentErrorIndex);
-            lcd.print("Exp: " + String(displayError.expected));
-            lcd.setCursor(0, 3);
-            lcd.print("Act: " + String(displayError.actual));
+            String expectedLine = "Exp: " + displayError.expected;
+            String actualLine = "Act: " + displayError.actual;
+
+            // Truncate lines to fit within 20 characters
+            if (expectedLine.length() > 20) expectedLine = expectedLine.substring(0, 20);
+            if (actualLine.length() > 20) actualLine = actualLine.substring(0, 20);
             
-            currentErrorIndex = (currentErrorIndex + 1) % errorCount; // Cycle through errors
+            lcd.setCursor(0, 2); // (col, row)
+            lcd.print(expectedLine);
+            lcd.setCursor(0, 3);
+            lcd.print(actualLine);
+            
+            // Cycle through errors
+            currentErrorIndex = (currentErrorIndex + 1) % errorCount; 
         } else {
             lcd.setCursor(0, 2);
             lcd.print("NOMINAL");
