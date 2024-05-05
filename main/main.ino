@@ -13,7 +13,8 @@
 #define TURBO_GATE_VALVE_CLOSED_PIN     33
 #define ARGON_GATE_VALVE_CLOSED_PIN     32
 #define ARGON_GATE_VALVE_OPEN_PIN       31
-const int rs = 12, en = 10, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // 20x4 LCD pin connections
+// const int rs = 12, en = 10, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // 20x4 LCD pin connections
+const int rs = 22, en = 24, d4 = 26, d5 = 28, d6 = 30, d7 = 32; // 20x4 LCD pin connections
 
 /**
 *	System constants
@@ -104,6 +105,7 @@ QueueList<Error> errorQueue;
 unsigned int currentErrorIndex = 0;
 unsigned long lastErrorDisplayTime = 0;     // To track when the last error was displayed
 double currentPressure = 0.0;
+extern int __heap_start, *__brkval;
 SystemState currentSystemState = INIT;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);  // Initialize LCD display
 PressureTransducer sensor(PRESSURE_GAUGE_DEFAULT_ADDR, Serial2); // Initialize the Pressure sensor
@@ -124,10 +126,12 @@ void setup() {
     Serial1.begin(9600); // Initialize the serial to LabVIEW
     Serial2.begin(9600); // Initialize the serial to Pressure gauge (RS485)
     lcd.begin(20, 4); // Set up the LCD's number of columns and rows
-
+    
     startupMsg();
     //logPressureSensorInfo(); // Model and firmware version, hours of operation TODO:implement
-
+    Serial.print("Free memory: ");
+    Serial.println(freeMemory());
+    Serial.flush();
     do {
         /*** Read in system switch states ***/
         SwitchStates currentStates = readSystemSwitchStates();
@@ -141,6 +145,8 @@ void setup() {
 
         // Update the LCD with the latest info
         updateLCD();
+        Serial.println("UpdatedLCD");
+        Serial.flush();
     } while (hasCriticalErrors());
 }
 
@@ -195,6 +201,8 @@ void updateLCD() {
     // Display the top line
     lcd.setCursor(0, 0); // (col, row)
     lcd.print(fullTopLine);
+    Serial.println(fullTopLine);
+    Serial.flush();
 
     String pressureLine = "Pressure:" + String(currentPressure) + " mbar";
     if (pressureLine.length() > 20) { 
@@ -222,7 +230,7 @@ void updateLCD() {
             lcd.print(expectedLine);
             lcd.setCursor(0, 3);
             lcd.print(actualLine);
-            
+
             // Cycle through errors
             currentErrorIndex = (currentErrorIndex + 1) % errorCount; 
         } else {
@@ -267,8 +275,11 @@ void checkForValveContention(const SwitchStates& states) {
         // Argon gate valve error: both pins are HIGH simultaneously
         addErrorToQueue(ARGON_GATE_VALVE_ERROR, ERROR, "ValveOK", "ValveContention");
         Serial.println("ARGON_GATE_VALVE_CONTENTION: Both CLOSED and OPEN pins are HIGH");
+        Serial.flush();
     } else {
         removeErrorFromQueue(ARGON_GATE_VALVE_ERROR);
+        Serial.println("Argon gate valve check OK.");
+        Serial.flush();
     }
 
     // Check for Turbo Gate Valve contention
@@ -276,8 +287,11 @@ void checkForValveContention(const SwitchStates& states) {
         // Turbo gate valve error: both pins are HIGH simultaneously
         addErrorToQueue(TURBO_GATE_VALVE_ERROR, ERROR, "ValveOK", "ValveContention");
         Serial.println("TURBO_GATE_VALVE_CONTENTION: Both CLOSED and OPEN pins are HIGH");
+        Serial.flush();
     } else {
         removeErrorFromQueue(TURBO_GATE_VALVE_ERROR);
+        Serial.println("Turbo gate valve check OK.");
+        Serial.flush();
     }
 }
 
@@ -289,6 +303,7 @@ void checkTurboRotorOnWithoutPumpsPower(const SwitchStates& states) {
         // This condition is potentially unsafe, add a warning to the error queue
         addErrorToQueue(TURBO_ROTOR_ON_WARNING, WARNING, "RotorOFF", "RotorON"); // (code, level, expected, actual)
         Serial.println("WARNING: Turbo rotor is ON while Pumps Power is OFF");
+        Serial.flush();
     } else {
         // If the condition is not met, remove the warning from queue (if it exists)
         removeErrorFromQueue(TURBO_ROTOR_ON_WARNING);
@@ -381,21 +396,37 @@ void configurePressureSensor() {
 
     /*** Set units to MBAR ***/
     CommandResult pressureUnitResponse = sensor.setPressureUnits("MBAR");
-
+    Serial.print("setPressureUnits outcome:");
+    Serial.print(pressureUnitResponse.outcome);
+    Serial.print(", Response: ");
+    Serial.println(pressureUnitResponse.resultStr);
+    Serial.flush();
+    Serial.flush();
     if (!pressureUnitResponse.outcome) {
         // Pressure unit configuration failed
-        addErrorToQueue(PRESSURE_UNIT_ERROR, ERROR, "MBAR", pressureUnitResponse.resultStr);
+        addErrorToQueue(
+          PRESSURE_UNIT_ERROR, // ErrorCode
+          ERROR, // ErrorLevel
+          "MBAR", // "Expected" string            
+          pressureUnitResponse.resultStr); // "Actual" string
     } else {
         // Pressure unit configuration succeeded
         removeErrorFromQueue(PRESSURE_UNIT_ERROR);
+        Serial.println("Pressure Unit configuration succeeded. Removed error from queue");
+        Serial.flush();
     }
 
     /*** Set user tag ***/
     CommandResult userTagResponse = sensor.setUserTag("EBEAM1"); 
-
+    Serial.println("setUserTag outcome:" + String(userTagResponse.outcome) + ", Response: " + userTagResponse.resultStr);
+    Serial.flush();
     if (!userTagResponse.outcome) {
         // User tag configuration failed
-        addErrorToQueue(USER_TAG_NACK_ERROR, ERROR, "EBEAM1", userTagResponse.resultStr);
+        addErrorToQueue(
+            USER_TAG_NACK_ERROR, // ErrorCode
+            ERROR, // ErrorLevel
+            "EBEAM1", // "Expected" string
+            userTagResponse.resultStr); // "Actual" string
     } else {
         // User tag configuration succeeded
         removeErrorFromQueue(USER_TAG_NACK_ERROR);
@@ -489,7 +520,7 @@ void startupMsg() {
     lcd.print(messageLine1);
     lcd.setCursor(startPosLine2, 2);  // Set cursor to center of the third row
     lcd.print(messageLine2);
-    delay(1000);  // Display the message for 1000 milliseconds or one second
+    delay(2000);  // Display the message for 1000 milliseconds or one second
     lcd.clear();
 }
 
@@ -498,10 +529,24 @@ void addErrorToQueue(ErrorCode code, ErrorLevel level, String expected, String a
     int queueSize = errorQueue.count();
     QueueList<Error> tempQueue;  // Temporary queue to hold non-matching errors
 
-    // Iterate through the existing queue to find and update the error
+    Serial.print("QueueSize: ");
+    Serial.println(queueSize);
+    Serial.flush();
+    // Iterate through the existing queue to see if it was already added and update the error
     for (int i = 0; i < queueSize; i++) {
-        Error currentError = errorQueue.pop(); // Remove the front element
-
+        Error currentError = errorQueue.peek(); // Access the front item
+        errorQueue.pop(); 
+        
+        Serial.println("Iterating through queue");
+        Serial.print("Popped error code:");
+        Serial.print(currentError.code);
+        Serial.print("  Level:");
+        Serial.print(currentError.level);
+        Serial.print("  Expected:");
+        Serial.print(currentError.expected);
+        Serial.print("  Actual:");
+        Serial.println(currentError.actual);
+        Serial.flush();
         if (currentError.code == code && !found) {
             // If error is found and we haven't updated it yet
             found = true;
@@ -521,8 +566,15 @@ void addErrorToQueue(ErrorCode code, ErrorLevel level, String expected, String a
 
     // If no existing error was found, create a new one and add it
     if (!found) {
+        Serial.println("Existing error not found");
+        Serial.flush();
         Error newError = {code, level, expected, actual, true, millis()};
+        Serial.print("Instantiated new error. Code:");
+        Serial.println(newError.code);
+        Serial.flush();
         tempQueue.push(newError);
+        Serial.println("Pushed error to queue");
+        Serial.flush();
     }
 
     // Replace the old queue with the updated queue
@@ -602,4 +654,9 @@ const char* getStateDescription(SystemState state) {
         case REMOTE_CONTROL:     return "REMOTE";
         default:                 return "PDOWN";
     }
+}
+
+int freeMemory() {
+  int v; 
+  return (int)&v - (__brkval == 0 ? (int)&__heap_start : (int)__brkval);
 }

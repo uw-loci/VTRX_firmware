@@ -22,8 +22,10 @@
  *
  *  ---
  *
- *  Version 1.0
- *
+ *    2024-05-04  Michael Laffin  <laffinmichael@gmail.com>
+ *    
+ *      - added at(): return an item from the specified index in the queue
+ * 
  *    2010-09-28  Efstathios Xatzikiriakidis  <efstxatzi@gmail.com>
  *
  *      - added exit(), blink(): error reporting and handling methods.
@@ -38,7 +40,6 @@
  *
  *  ---
  *
- *  For the latest version see: http://www.arduino.cc/
  */
 
 // header defining the interface of the source.
