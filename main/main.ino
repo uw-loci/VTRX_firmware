@@ -1,5 +1,6 @@
 #include <LiquidCrystal.h>  // Include LCD library
-#include "QueueList.h" // Include queue data structure library
+//#include "QueueList.h" // Include queue data structure library
+#include "cppQueue.h"
 #include "972b.h"  // Include the pressure transducer library
 
 /**
@@ -19,13 +20,14 @@ const int rs = 22, en = 24, d4 = 26, d5 = 28, d6 = 30, d7 = 32; // 20x4 LCD pin 
 /**
 *	System constants
 **/
+#define DEBUG_MODE                      true        // Set this false to disable debug logging
 #define FIRMWARE_VERSION                "v.1.0"
 #define EXPECTED_AMBIENT_PRESSURE       1010.0      // Nominal ambient pressure [millibar]
 #define AMBIENT_PRESSURE_THRESHOLD      200.0       // 20% tolerance level for ambient [millibar]
 #define PRESSURE_GAUGE_DEFAULT_ADDR     "253"       // Default 972b device address
 #define PRESSURE_READING_RETRY_LIMIT    3           // Attempts allowed before error. TODO: this should probably live in 972b driver
 #define AUTO_RESET_TIMEOUT              600000      // Time elapsed limit for non-persistent warnings   [milliseconds]
-// "1E-4", "BELOW", "1.1E0", "ON"
+#define MAX_QUEUE_SIZE                  10          // Errors that can simulataneously exist in queue
 #define SAFETY_RELAY_THRESHOLD          "1E-4"      // Pressure threshold [bar]
 #define SAFETY_RELAY_DIRECTION          "BELOW"     // Determines whether the relay is energized above or below the setpoint value
 #define SAFETY_RELAY_HYSTERESIS_VALUE   "1.1E-4"    // The pressure value at which the setpoint relay will be de-energized
@@ -101,7 +103,8 @@ struct Error {
 };
 
 /*** Define the error queue ***/
-QueueList<Error> errorQueue;
+//QueueList<Error> errorQueue;
+cppQueue errorQueue(sizeof(Error), MAX_QUEUE_SIZE, FIFO, true);
 unsigned int currentErrorIndex = 0;
 unsigned long lastErrorDisplayTime = 0;     // To track when the last error was displayed
 double currentPressure = 0.0;
@@ -122,6 +125,9 @@ void setup() {
     pinMode(ARGON_GATE_VALVE_CLOSED_PIN, INPUT);
     pinMode(ARGON_GATE_VALVE_OPEN_PIN, INPUT); 
     
+    if (DEBUG_MODE) {
+        //errorQueue.setPrinter(Serial);
+    }
     Serial.begin(9600); // Initialize the serial for programming and logging
     Serial1.begin(9600); // Initialize the serial to LabVIEW
     Serial2.begin(9600); // Initialize the serial to Pressure gauge (RS485)
@@ -145,7 +151,7 @@ void setup() {
 
         // Update the LCD with the latest info
         updateLCD();
-        Serial.println("UpdatedLCD");
+        Serial.println("Updated LCD");
         Serial.flush();
     } while (hasCriticalErrors());
 }
@@ -177,7 +183,7 @@ void loop() {
 // TODO: implement this
 void updateLCD() {
     unsigned long currentTime = millis();
-    int errorCount = errorQueue.count();
+    int errorCount = errorQueue.getCount();
 
     // Ensure that state and error count strings do not exceed 20 characters
     String stateString = getStateDescription(currentSystemState);
@@ -205,7 +211,7 @@ void updateLCD() {
     Serial.flush();
 
     String pressureLine = "Pressure:" + String(currentPressure) + " mbar";
-    if (pressureLine.length() > 20) { 
+    if (pressureLine.length() > 20) {
         pressureLine = pressureLine.substring(0, 20); // TODO: prioritize resultStr over "Pressure:" characters
     }
 
@@ -216,23 +222,24 @@ void updateLCD() {
     if (currentTime - lastErrorDisplayTime >= 2000) { // Change errors every 2 seconds
         lastErrorDisplayTime = currentTime;
         lcd.setCursor(0, 2); // Set the cursor for error details
-        if (errorCount > 0) { 
-            // Show the expected and actual values for the current error
-            Error displayError = errorQueue.at(currentErrorIndex);
+        if (errorCount > 0) {
+            Error displayError;
+            errorQueue.peekIdx(&displayError, currentErrorIndex);
+
             String expectedLine = "Exp: " + displayError.expected;
             String actualLine = "Act: " + displayError.actual;
 
             // Truncate lines to fit within 20 characters
             if (expectedLine.length() > 20) expectedLine = expectedLine.substring(0, 20);
             if (actualLine.length() > 20) actualLine = actualLine.substring(0, 20);
-            
+
             lcd.setCursor(0, 2); // (col, row)
             lcd.print(expectedLine);
             lcd.setCursor(0, 3);
             lcd.print(actualLine);
 
             // Cycle through errors
-            currentErrorIndex = (currentErrorIndex + 1) % errorCount; 
+            currentErrorIndex = (currentErrorIndex + 1) % errorCount;
         } else {
             lcd.setCursor(0, 2);
             lcd.print("NOMINAL");
@@ -396,11 +403,7 @@ void configurePressureSensor() {
 
     /*** Set units to MBAR ***/
     CommandResult pressureUnitResponse = sensor.setPressureUnits("MBAR");
-    Serial.print("setPressureUnits outcome:");
-    Serial.print(pressureUnitResponse.outcome);
-    Serial.print(", Response: ");
-    Serial.println(pressureUnitResponse.resultStr);
-    Serial.flush();
+    Serial.println("setPressureUnits outcome:" + String(pressureUnitResponse.outcome) + ", Response: " + pressureUnitResponse.resultStr);
     Serial.flush();
     if (!pressureUnitResponse.outcome) {
         // Pressure unit configuration failed
@@ -408,7 +411,8 @@ void configurePressureSensor() {
           PRESSURE_UNIT_ERROR, // ErrorCode
           ERROR, // ErrorLevel
           "MBAR", // "Expected" string            
-          pressureUnitResponse.resultStr); // "Actual" string
+          pressureUnitResponse.resultStr // "Actual" string
+          ); 
     } else {
         // Pressure unit configuration succeeded
         removeErrorFromQueue(PRESSURE_UNIT_ERROR);
@@ -510,6 +514,7 @@ void sendDataToLabVIEW() {
 }
 
 void startupMsg() {
+    Serial.println("EBEAM VTRX-200 Startup");
     lcd.clear();
     String messageLine1 = "EBEAM VTRX-200";
     String messageLine2 = "Firmware " + String(FIRMWARE_VERSION); // Concatenating the version
@@ -525,20 +530,19 @@ void startupMsg() {
 }
 
 void addErrorToQueue(ErrorCode code, ErrorLevel level, String expected, String actual) {
+    int queueSize = errorQueue.getCount();
+    Error currentError;
     bool found = false;
-    int queueSize = errorQueue.count();
-    QueueList<Error> tempQueue;  // Temporary queue to hold non-matching errors
-
-    Serial.print("QueueSize: ");
+    
+    Serial.print("QueueSize prior to adding: ");
     Serial.println(queueSize);
-    Serial.flush();
+    
     // Iterate through the existing queue to see if it was already added and update the error
     for (int i = 0; i < queueSize; i++) {
-        Error currentError = errorQueue.peek(); // Access the front item
-        errorQueue.pop(); 
-        
+        errorQueue.peekIdx(&currentError, i);
+
         Serial.println("Iterating through queue");
-        Serial.print("Popped error code:");
+        Serial.print("Current Error code:");
         Serial.print(currentError.code);
         Serial.print("  Level:");
         Serial.print(currentError.level);
@@ -546,99 +550,84 @@ void addErrorToQueue(ErrorCode code, ErrorLevel level, String expected, String a
         Serial.print(currentError.expected);
         Serial.print("  Actual:");
         Serial.println(currentError.actual);
-        Serial.flush();
-        if (currentError.code == code && !found) {
-            // If error is found and we haven't updated it yet
+        
+        if (currentError.code == code) {
+            // Error is pre-existing
             found = true;
             // Update the error details
             currentError.level = level;
             currentError.expected = expected;
-            currentError.actual = actual;
+            currentError.actual = expected;
             currentError.asserted = true;
             currentError.timestamp = millis();
-            // Push the updated error back into the temporary queue
-            tempQueue.push(currentError);
-        } else {
-            // If it's not the error we're looking for, push it to the temp queue
-            tempQueue.push(currentError);
+            errorQueue.drop(); // Drop the old version
+            errorQueue.push(&currentError); // Add the updated version
+            break;
         }
     }
 
-    // If no existing error was found, create a new one and add it
+    // Add new error if not found
     if (!found) {
-        Serial.println("Existing error not found");
-        Serial.flush();
         Error newError = {code, level, expected, actual, true, millis()};
-        Serial.print("Instantiated new error. Code:");
-        Serial.println(newError.code);
-        Serial.flush();
-        tempQueue.push(newError);
-        Serial.println("Pushed error to queue");
-        Serial.flush();
+        errorQueue.push(&newError);
     }
 
-    // Replace the old queue with the updated queue
-    errorQueue = tempQueue;
+    Serial.print("QueueSize after adding: ");
+    Serial.println(errorQueue.getCount());
 }
 
 void removeErrorFromQueue(ErrorCode code) {
-    int queueSize = errorQueue.count();
+    int queueSize = errorQueue.getCount();
+    Error currentError;
+
     for(int i = 0; i < queueSize; i++) {
-        Error currentError = errorQueue.peek();
-        errorQueue.pop(); // Remove the current error from the queue
-        if (currentError.code == code){
-            // de-assert the error
-            currentError.asserted = false;
-        } else {
-            errorQueue.push(currentError); // re-add errors that are not the target
+        errorQueue.peek(&currentError);
+        errorQueue.pop(&currentError); // remove the error
+
+        if (currentError.code != code) {
+            errorQueue.push(&currentError);
         }
-        // if it's the error to remove, it is already removed by the pop() operation
     }
 }
 
 void cleanExpiredErrors() {
   unsigned long currentTime = millis();
-  int queueSize = errorQueue.count();
+  int queueSize = errorQueue.getCount();
+  Error currentError;
+
   for (int i = 0; i < queueSize; i++) {
-    Error currentError = errorQueue.peek();
-    errorQueue.pop();  // Remove the current error from the queue
+    errorQueue.peek(&currentError);
+    errorQueue.pop(&currentError);  // Remove the current error from the queue
     if (currentTime - currentError.timestamp < AUTO_RESET_TIMEOUT || currentError.asserted) {
       // Keep errors that are within the timeout or are asserted
-      errorQueue.push(currentError);
+      errorQueue.push(&currentError);
     }
     // Expired and non-asserted errors are simply not re-added
   }
 }
 
 bool isErrorPresent(ErrorCode code) {
-    // Iterate through the error queue to check if the specified error code is present
-    for (unsigned int i = 0; i < errorQueue.count(); i++) {
-        Error currentError = errorQueue.at(i);
+    int queueSize = errorQueue.getCount(); // Get the number of errors in the queue
+    Error currentError;
+    for (int i = 0; i < queueSize; i++) {
+        errorQueue.peekIdx(&currentError, i); // Peek at the error at index i
         if (currentError.code == code && currentError.asserted) {
-            return true; // found it
+            return true; // Found the error
         }
     }
-    return false; // error wasn't in queue
+    return false; // Error not found
 }
 
-bool hasCriticalErrors() { // Excludes 'WARNING' level items in queue
-    int queueSize = errorQueue.count();
-    QueueList<Error> tempQueue;
-    bool hasError = false;
-
-    // Examine each error in the queue
+bool hasCriticalErrors() {
+    int queueSize = errorQueue.getCount(); // Get the number of errors in the queue
+    Error currentError;
     for (int i = 0; i < queueSize; i++) {
-        Error currentError = errorQueue.pop();  // Remove from the front to examine
-        tempQueue.push(currentError);  // Push it to a temporary queue to preserve the queue
-
+        errorQueue.peekIdx(&currentError, i); // Peek at the error at index i
         if (currentError.level == ERROR && currentError.asserted) {
-            hasError = true;
+            return true; // Critical error found, no need to continue checking
         }
     }
-
-    // Restore the original queue
-    errorQueue = tempQueue;
-    return hasError;
+    return false; // No critical error found
 }
 
 String formatPressure(String pressure) {
