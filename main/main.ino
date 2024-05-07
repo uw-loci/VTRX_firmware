@@ -27,9 +27,9 @@ const int rs = 22, en = 23, d4 = 24, d5 = 25, d6 = 26, d7 = 27; // 20x4 LCD pin 
 #define PRESSURE_READING_RETRY_LIMIT    3           // Attempts allowed before error. TODO: this should probably live in 972b driver
 #define AUTO_RESET_TIMEOUT              600000      // Time elapsed limit for non-persistent warnings   [milliseconds]
 #define MAX_QUEUE_SIZE                  10          // Errors that can simulataneously exist in queue
-#define SAFETY_RELAY_THRESHOLD          "1.00E+3"   // Pressure threshold [mbar]
+#define SAFETY_RELAY_THRESHOLD          "1.00E+1"   // Pressure threshold [mbar]
 #define SAFETY_RELAY_DIRECTION          "BELOW"     // Determines whether the relay is energized above or below the setpoint value
-#define SAFETY_RELAY_HYSTERESIS_VALUE   "1.10E+3"    // The pressure value at which the setpoint relay will be de-energized [mbar]
+#define SAFETY_RELAY_HYSTERESIS_VALUE   "1.10E+1"    // The pressure value at which the setpoint relay will be de-energized [mbar]
 #define SAFETY_RELAY_ENABLE             "ON"
 
 /**
