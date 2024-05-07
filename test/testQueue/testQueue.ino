@@ -4,28 +4,41 @@
 typedef int ErrorCode;
 typedef int ErrorLevel;
 
-#define MAX_EXPECTED_LEN 20
-#define MAX_ACTUAL_LEN 40
-
 // Define the Error structure
 struct Error {
     ErrorCode code;
     ErrorLevel level;
-    char expected[MAX_EXPECTED_LEN];
-    char actual[MAX_ACTUAL_LEN];
+    String expected;
+    String actual;
     bool asserted;
     unsigned long timestamp;
 };
 
-cppQueue errorQueue(sizeof(Error), 10, FIFO, true); // 10 is the queue size
+// Create a queue to store pointers to Error objects
+cppQueue errorQueue(sizeof(Error*), 10, FIFO); // 10 is the queue size
 
 // Error codes and levels for testing
 const ErrorCode TEST_ERROR_CODE = 10;
 const ErrorLevel TEST_ERROR_LEVEL = 1;
 
-void addErrorToQueue(ErrorCode code, ErrorLevel level, const char* expected, const char* actual) {
+void printError(const Error& error) {
+    Serial.println("Error details:");
+    Serial.print("Code: ");
+    Serial.println(error.code);
+    Serial.print("Level: ");
+    Serial.println(error.level);
+    Serial.print("Expected: ");
+    Serial.println(error.expected);
+    Serial.print("Actual: ");
+    Serial.println(error.actual);
+    Serial.print("Timestamp: ");
+    Serial.println(error.timestamp);
+    Serial.println();
+}
+
+void addErrorToQueue(ErrorCode code, ErrorLevel level, String expected, String actual) {
     int queueSize = errorQueue.getCount();
-    Error currentError;
+    Error* currentError = nullptr;
     bool found = false;
 
     Serial.print("QueueSize prior to adding: ");
@@ -36,24 +49,17 @@ void addErrorToQueue(ErrorCode code, ErrorLevel level, const char* expected, con
         errorQueue.peekIdx(&currentError, i);
 
         Serial.println("Iterating through queue");
-        Serial.print("Current Error code:");
-        Serial.print(currentError.code);
-        Serial.print("  Level:");
-        Serial.print(currentError.level);
-        Serial.print("  Expected:");
-        Serial.print(currentError.expected);
-        Serial.print("  Actual:");
-        Serial.println(currentError.actual);
+        printError(*currentError);
 
-        if (currentError.code == code) {
+        if (currentError->code == code) {
             // Error is pre-existing
             found = true;
             // Update the error details
-            currentError.level = level;
-            strncpy(currentError.expected, expected, MAX_EXPECTED_LEN - 1);
-            strncpy(currentError.actual, actual, MAX_ACTUAL_LEN - 1);
-            currentError.asserted = true;
-            currentError.timestamp = millis();
+            currentError->level = level;
+            currentError->expected = expected;
+            currentError->actual = actual;
+            currentError->asserted = true;
+            currentError->timestamp = millis();
             errorQueue.drop(); // Drop the old version
             errorQueue.push(&currentError); // Add the updated version
             break;
@@ -62,13 +68,7 @@ void addErrorToQueue(ErrorCode code, ErrorLevel level, const char* expected, con
 
     // If not found, add the new error
     if (!found) {
-        Error newError;
-        newError.code = code;
-        newError.level = level;
-        strncpy(newError.expected, expected, MAX_EXPECTED_LEN - 1);
-        strncpy(newError.actual, actual, MAX_ACTUAL_LEN - 1);
-        newError.asserted = true;
-        newError.timestamp = millis();
+        Error* newError = new Error{ code, level, expected, actual, true, millis() };
         errorQueue.push(&newError);
     }
 
@@ -79,6 +79,7 @@ void addErrorToQueue(ErrorCode code, ErrorLevel level, const char* expected, con
 void setup() {
     Serial.begin(9600);
 
+    // Test case: Adding an error with different expected and actual values
     addErrorToQueue(TEST_ERROR_CODE, TEST_ERROR_LEVEL, "MBAR", "ERROR Incomplete response");
     addErrorToQueue(TEST_ERROR_CODE, TEST_ERROR_LEVEL, "EBEAM1", "ERROR Incomplete response");
 }
@@ -86,22 +87,13 @@ void setup() {
 void loop() {
     // This loop will print errors from the queue
     while (errorQueue.getCount() > 0) {
-        Error error;
+        Error* error = nullptr;
         errorQueue.pop(&error);
 
         Serial.println("Dequeued error:");
-        Serial.print("Code: ");
-        Serial.println(error.code);
-        Serial.print("Level: ");
-        Serial.println(error.level);
-        Serial.print("Expected: ");
-        Serial.println(error.expected);
-        Serial.print("Actual: ");
-        Serial.println(error.actual);
-        Serial.print("Timestamp: ");
-        Serial.println(error.timestamp);
-        Serial.println();
+        printError(*error);
+        delete error; // Free the allocated memory
     }
 
-    delay(5000); 
+    delay(5000); // Delay before the next iteration
 }

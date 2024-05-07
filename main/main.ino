@@ -1,5 +1,4 @@
 #include <LiquidCrystal.h>  // Include LCD library
-//#include "QueueList.h" // Include queue data structure library
 #include "cppQueue.h"
 #include "972b.h"  // Include the pressure transducer library
 
@@ -14,9 +13,9 @@
 #define TURBO_GATE_VALVE_CLOSED_PIN     33
 #define ARGON_GATE_VALVE_CLOSED_PIN     32
 #define ARGON_GATE_VALVE_OPEN_PIN       31
-// const int rs = 12, en = 10, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // 20x4 LCD pin connections
-const int rs = 22, en = 24, d4 = 26, d5 = 28, d6 = 30, d7 = 32; // 20x4 LCD pin connections
-
+//const int rs = 12, en = 10, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // 20x4 LCD pin connections
+//const int rs = 22, en = 24, d4 = 26, d5 = 28, d6 = 30, d7 = 32; // 20x4 LCD pin connections
+const int rs = 22, en = 23, d4 = 24, d5 = 25, d6 = 26, d7 = 27; // 20x4 LCD pin connections
 /**
 *	System constants
 **/
@@ -126,7 +125,7 @@ void setup() {
     pinMode(ARGON_GATE_VALVE_OPEN_PIN, INPUT); 
     
     if (DEBUG_MODE) {
-        //errorQueue.setPrinter(Serial);
+        //errorQueue.setPrinter(Serial); // TODO: implement
     }
     Serial.begin(9600); // Initialize the serial for programming and logging
     Serial1.begin(9600); // Initialize the serial to LabVIEW
@@ -136,7 +135,8 @@ void setup() {
     startupMsg();
     //logPressureSensorInfo(); // Model and firmware version, hours of operation TODO:implement
     Serial.print("Free memory: ");
-    Serial.println(freeMemory());
+    Serial.print(freeMemory());
+    Serial.println(" bytes");
     Serial.flush();
     do {
         /*** Read in system switch states ***/
@@ -153,6 +153,8 @@ void setup() {
         updateLCD();
         Serial.println("Updated LCD");
         Serial.flush();
+
+        delay(50);
     } while (hasCriticalErrors());
 }
 
@@ -423,7 +425,7 @@ void configurePressureSensor() {
     /*** Set user tag ***/
     CommandResult userTagResponse = sensor.setUserTag("EBEAM1"); 
     Serial.println("setUserTag outcome:" + String(userTagResponse.outcome) + ", Response: " + userTagResponse.resultStr);
-    Serial.flush();
+    
     if (!userTagResponse.outcome) {
         // User tag configuration failed
         addErrorToQueue(
@@ -438,7 +440,8 @@ void configurePressureSensor() {
 
     /*** Query the sensor status ***/
     CommandResult currentStatus = sensor.status();
-
+    Serial.println("Status query outcome:" + String(currentStatus.outcome) + ", Response: " + currentStatus.resultStr);
+    
     if (!currentStatus.outcome) {
         // Sensor status query failed
         addErrorToQueue(PRESSURE_NACK_ERROR, ERROR, "972bOK", currentStatus.resultStr);
@@ -530,11 +533,13 @@ void startupMsg() {
 }
 
 void addErrorToQueue(ErrorCode code, ErrorLevel level, String expected, String actual) {
-    int queueSize = errorQueue.getCount();
-    Error currentError;
-    bool found = false;
+    Serial.println("Adding error..");
+    printFreeMemory();
     
-    Serial.print("QueueSize prior to adding: ");
+    int queueSize = errorQueue.getCount();
+    Error* currentError = nullptr;
+    bool found = false;
+
     Serial.println(queueSize);
     
     // Iterate through the existing queue to see if it was already added and update the error
@@ -543,23 +548,23 @@ void addErrorToQueue(ErrorCode code, ErrorLevel level, String expected, String a
 
         Serial.println("Iterating through queue");
         Serial.print("Current Error code:");
-        Serial.print(currentError.code);
+        Serial.print(currentError->code);
         Serial.print("  Level:");
-        Serial.print(currentError.level);
+        Serial.print(currentError->level);
         Serial.print("  Expected:");
-        Serial.print(currentError.expected);
+        Serial.print(currentError->expected);
         Serial.print("  Actual:");
-        Serial.println(currentError.actual);
+        Serial.println(currentError->actual);
         
-        if (currentError.code == code) {
+        if (currentError->code == code) {
             // Error is pre-existing
             found = true;
             // Update the error details
-            currentError.level = level;
-            currentError.expected = expected;
-            currentError.actual = expected;
-            currentError.asserted = true;
-            currentError.timestamp = millis();
+            currentError->level = level;
+            currentError->expected = expected;
+            currentError->actual = expected;
+            currentError->asserted = true;
+            currentError->timestamp = millis();
             errorQueue.drop(); // Drop the old version
             errorQueue.push(&currentError); // Add the updated version
             break;
@@ -568,24 +573,25 @@ void addErrorToQueue(ErrorCode code, ErrorLevel level, String expected, String a
 
     // Add new error if not found
     if (!found) {
-        Error newError = {code, level, expected, actual, true, millis()};
+        Error* newError = new Error{code, level, expected, actual, true, millis()};
         errorQueue.push(&newError);
     }
 
-    Serial.print("QueueSize after adding: ");
-    Serial.println(errorQueue.getCount());
+    Serial.print("Added. ");
+    printFreeMemory();
 }
 
 void removeErrorFromQueue(ErrorCode code) {
     int queueSize = errorQueue.getCount();
-    Error currentError;
+    Error* currentError = nullptr;
 
     for(int i = 0; i < queueSize; i++) {
-        errorQueue.peek(&currentError);
         errorQueue.pop(&currentError); // remove the error
 
-        if (currentError.code != code) {
+        if (currentError->code != code) {
             errorQueue.push(&currentError);
+        } else {
+            delete currentError; // Free the allocated memory for the remove error
         }
     }
 }
@@ -593,25 +599,26 @@ void removeErrorFromQueue(ErrorCode code) {
 void cleanExpiredErrors() {
   unsigned long currentTime = millis();
   int queueSize = errorQueue.getCount();
-  Error currentError;
+  Error* currentError = nullptr;
 
   for (int i = 0; i < queueSize; i++) {
     errorQueue.peek(&currentError);
     errorQueue.pop(&currentError);  // Remove the current error from the queue
-    if (currentTime - currentError.timestamp < AUTO_RESET_TIMEOUT || currentError.asserted) {
+    if (currentTime - currentError->timestamp < AUTO_RESET_TIMEOUT || currentError->asserted) {
       // Keep errors that are within the timeout or are asserted
       errorQueue.push(&currentError);
+    } else {
+        delete currentError; // Free the memory if the error is expired 
     }
-    // Expired and non-asserted errors are simply not re-added
   }
 }
 
 bool isErrorPresent(ErrorCode code) {
     int queueSize = errorQueue.getCount(); // Get the number of errors in the queue
-    Error currentError;
+    Error* currentError = nullptr;
     for (int i = 0; i < queueSize; i++) {
         errorQueue.peekIdx(&currentError, i); // Peek at the error at index i
-        if (currentError.code == code && currentError.asserted) {
+        if (currentError->code == code && currentError->asserted) {
             return true; // Found the error
         }
     }
@@ -620,13 +627,15 @@ bool isErrorPresent(ErrorCode code) {
 
 bool hasCriticalErrors() {
     int queueSize = errorQueue.getCount(); // Get the number of errors in the queue
-    Error currentError;
+    Error* currentError = nullptr;
     for (int i = 0; i < queueSize; i++) {
         errorQueue.peekIdx(&currentError, i); // Peek at the error at index i
-        if (currentError.level == ERROR && currentError.asserted) {
+        if (currentError->level == ERROR && currentError->asserted) {
+            Serial.println("Critical error found");
             return true; // Critical error found, no need to continue checking
         }
     }
+    Serial.println("No critical errors found");
     return false; // No critical error found
 }
 
@@ -648,4 +657,9 @@ const char* getStateDescription(SystemState state) {
 int freeMemory() {
   int v; 
   return (int)&v - (__brkval == 0 ? (int)&__heap_start : (int)__brkval);
+}
+
+void printFreeMemory() {
+    Serial.print("Free memory: ");
+    Serial.println(freeMemory());
 }
