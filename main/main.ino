@@ -593,31 +593,11 @@ void addErrorToQueue(ErrorCode code, ErrorLevel level, String expected, String a
         } else {
             Serial.println("Failed to allocate memory for new error");
         }
-
-        Serial.println("Updated queue contents:");
-        printQueueContents();
-        delay(50);
-
     }
 
-    // Reiterate through queue to confirm size
-    for (int i = 0; i < errorQueue.getCount(); i++) {
-        errorQueue.peekIdx(&currentError, i);
-        if (currentError == nullptr) continue; // Check to avoid null pointer dereference
-
-        Serial.println("Iterating through queue:");
-        Serial.print("Item 1:");
-        Serial.print(" code:");
-        Serial.print(currentError->code);
-        Serial.print("  Level:");
-        Serial.print(currentError->level);
-        Serial.print("  Expected:");
-        Serial.print(currentError->expected);
-        Serial.print("  Actual:");
-        Serial.println(currentError->actual);
-        Serial.flush();
-    }
-
+    Serial.println("Updated queue contents:");
+    printQueueContents();
+    
     printFreeMemory();
     delay(50);
 }
