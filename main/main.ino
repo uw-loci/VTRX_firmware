@@ -102,7 +102,6 @@ struct Error {
 };
 
 /*** Define the error queue ***/
-//QueueList<Error> errorQueue;
 cppQueue errorQueue(sizeof(Error), MAX_QUEUE_SIZE, FIFO, true);
 unsigned int currentErrorIndex = 0;
 unsigned long lastErrorDisplayTime = 0;     // To track when the last error was displayed
@@ -402,11 +401,12 @@ void getCurrentPressure() {
 }
 
 void configurePressureSensor() {
+    Serial.println("Configuring pressure sensor...");
 
     /*** Set units to MBAR ***/
     CommandResult pressureUnitResponse = sensor.setPressureUnits("MBAR");
-    Serial.println("setPressureUnits outcome:" + String(pressureUnitResponse.outcome) + ", Response: " + pressureUnitResponse.resultStr);
-    Serial.flush();
+    Serial.println("Set pressure units outcome:" + String(pressureUnitResponse.outcome) + ", Response: " + pressureUnitResponse.resultStr);
+    
     if (!pressureUnitResponse.outcome) {
         // Pressure unit configuration failed
         addErrorToQueue(
@@ -424,7 +424,7 @@ void configurePressureSensor() {
 
     /*** Set user tag ***/
     CommandResult userTagResponse = sensor.setUserTag("EBEAM1"); 
-    Serial.println("setUserTag outcome:" + String(userTagResponse.outcome) + ", Response: " + userTagResponse.resultStr);
+    Serial.println("Set user tag outcome:" + String(userTagResponse.outcome) + ", Response: " + userTagResponse.resultStr);
     
     if (!userTagResponse.outcome) {
         // User tag configuration failed
@@ -432,11 +432,16 @@ void configurePressureSensor() {
             USER_TAG_NACK_ERROR, // ErrorCode
             ERROR, // ErrorLevel
             "EBEAM1", // "Expected" string
-            userTagResponse.resultStr); // "Actual" string
+            userTagResponse.resultStr // "Actual" string
+            ); 
     } else {
         // User tag configuration succeeded
         removeErrorFromQueue(USER_TAG_NACK_ERROR);
+        Serial.println("972b User Tag configuration succeeded. Removed error from queue");
+        Serial.flush();
     }
+
+    delay(100);
 
     /*** Query the sensor status ***/
     CommandResult currentStatus = sensor.status();
@@ -528,19 +533,16 @@ void startupMsg() {
     lcd.print(messageLine1);
     lcd.setCursor(startPosLine2, 2);  // Set cursor to center of the third row
     lcd.print(messageLine2);
-    delay(2000);  // Display the message for 1000 milliseconds or one second
+    delay(3500);  // Display the message for 1000 milliseconds or one second
     lcd.clear();
 }
 
 void addErrorToQueue(ErrorCode code, ErrorLevel level, String expected, String actual) {
-    Serial.println("Adding error..");
-    printFreeMemory();
+    Serial.println("Attempting to add error to queue");
     
     int queueSize = errorQueue.getCount();
     Error* currentError = nullptr;
     bool found = false;
-
-    Serial.println(queueSize);
     
     // Iterate through the existing queue to see if it was already added and update the error
     for (int i = 0; i < queueSize; i++) {
@@ -555,6 +557,7 @@ void addErrorToQueue(ErrorCode code, ErrorLevel level, String expected, String a
         Serial.print(currentError->expected);
         Serial.print("  Actual:");
         Serial.println(currentError->actual);
+        Serial.flush();
         
         if (currentError->code == code) {
             // Error is pre-existing
@@ -562,11 +565,12 @@ void addErrorToQueue(ErrorCode code, ErrorLevel level, String expected, String a
             // Update the error details
             currentError->level = level;
             currentError->expected = expected;
-            currentError->actual = expected;
+            currentError->actual = actual;
             currentError->asserted = true;
             currentError->timestamp = millis();
             errorQueue.drop(); // Drop the old version
             errorQueue.push(&currentError); // Add the updated version
+            Serial.println("Updated existing error in queue");
             break;
         }
     }
@@ -575,10 +579,13 @@ void addErrorToQueue(ErrorCode code, ErrorLevel level, String expected, String a
     if (!found) {
         Error* newError = new Error{code, level, expected, actual, true, millis()};
         errorQueue.push(&newError);
+        Serial.println("Added new error to queue.");
     }
 
     Serial.print("Added. ");
+    Serial.flush();
     printFreeMemory();
+    delay(50);
 }
 
 void removeErrorFromQueue(ErrorCode code) {
