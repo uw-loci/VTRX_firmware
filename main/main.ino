@@ -538,18 +538,76 @@ void startupMsg() {
 }
 
 void addErrorToQueue(ErrorCode code, ErrorLevel level, String expected, String actual) {
-    Serial.println("Attempting to add error to queue");
     
-    int queueSize = errorQueue.getCount();
+    if (errorQueue.getCount() >= MAX_QUEUE_SIZE) {
+        Serial.println("Error queue is full. Oldest error will be removed");
+        Error* oldError;
+        if (errorQueue.pop(&oldError)) { // pop returns true if the operation is successful
+            delete oldError; // Free memory allocated for the oldest error
+        }
+    }
+    
     Error* currentError = nullptr;
     bool found = false;
     
+    Serial.print("Adding Error:");
+    Serial.print(code);
+    Serial.print("  Level:");
+    Serial.print(level);
+    Serial.print("  Expected:");
+    Serial.print(expected);
+    Serial.print("  Actual:");
+    Serial.println(actual);
+    Serial.flush();
+    
     // Iterate through the existing queue to see if it was already added and update the error
-    for (int i = 0; i < queueSize; i++) {
-        errorQueue.peekIdx(&currentError, i);
+    for (int i = 0; i < errorQueue.getCount(); i++) {
+        if (errorQueue.peekIdx(&currentError, i) && currentError != nullptr){
+            Serial.print("Checking error at index ");
+            Serial.println(i);
+            
+            if (currentError->code == code) {
+                // Error is pre-existing
+                found = true;
+                // Update the error details
+                currentError->level = level;
+                currentError->expected = expected;
+                currentError->actual = actual;
+                currentError->asserted = true;
+                currentError->timestamp = millis();
+                errorQueue.drop(); // Drop the old version
+                errorQueue.push(&currentError); // Add the updated version
+                Serial.println("Updated existing error in queue");
+                break;
+            }
+        }
+    }
 
-        Serial.println("Iterating through queue");
-        Serial.print("Current Error code:");
+    // Add new error if not found
+    if (!found) {
+
+        Error* newError = new Error{code, level, expected, actual, true, millis()};
+        if (newError != nullptr) {
+            errorQueue.push(&newError);
+            Serial.println("Added new error to queue.");
+        } else {
+            Serial.println("Failed to allocate memory for new error");
+        }
+
+        Serial.println("Updated queue contents:");
+        printQueueContents();
+        delay(50);
+
+    }
+
+    // Reiterate through queue to confirm size
+    for (int i = 0; i < errorQueue.getCount(); i++) {
+        errorQueue.peekIdx(&currentError, i);
+        if (currentError == nullptr) continue; // Check to avoid null pointer dereference
+
+        Serial.println("Iterating through queue:");
+        Serial.print("Item 1:");
+        Serial.print(" code:");
         Serial.print(currentError->code);
         Serial.print("  Level:");
         Serial.print(currentError->level);
@@ -558,32 +616,8 @@ void addErrorToQueue(ErrorCode code, ErrorLevel level, String expected, String a
         Serial.print("  Actual:");
         Serial.println(currentError->actual);
         Serial.flush();
-        
-        if (currentError->code == code) {
-            // Error is pre-existing
-            found = true;
-            // Update the error details
-            currentError->level = level;
-            currentError->expected = expected;
-            currentError->actual = actual;
-            currentError->asserted = true;
-            currentError->timestamp = millis();
-            errorQueue.drop(); // Drop the old version
-            errorQueue.push(&currentError); // Add the updated version
-            Serial.println("Updated existing error in queue");
-            break;
-        }
     }
 
-    // Add new error if not found
-    if (!found) {
-        Error* newError = new Error{code, level, expected, actual, true, millis()};
-        errorQueue.push(&newError);
-        Serial.println("Added new error to queue.");
-    }
-
-    Serial.print("Added. ");
-    Serial.flush();
     printFreeMemory();
     delay(50);
 }
@@ -594,11 +628,13 @@ void removeErrorFromQueue(ErrorCode code) {
 
     for(int i = 0; i < queueSize; i++) {
         errorQueue.pop(&currentError); // remove the error
+        if (currentError == nullptr) continue; // Consistency check
 
         if (currentError->code != code) {
             errorQueue.push(&currentError);
         } else {
             delete currentError; // Free the allocated memory for the remove error
+            currentError = nullptr; // Nullify the pointer after deletion
         }
     }
 }
@@ -611,11 +647,14 @@ void cleanExpiredErrors() {
   for (int i = 0; i < queueSize; i++) {
     errorQueue.peek(&currentError);
     errorQueue.pop(&currentError);  // Remove the current error from the queue
+    if (currentError == nullptr) continue; // Consistency check
+
     if (currentTime - currentError->timestamp < AUTO_RESET_TIMEOUT || currentError->asserted) {
       // Keep errors that are within the timeout or are asserted
       errorQueue.push(&currentError);
     } else {
         delete currentError; // Free the memory if the error is expired 
+        currentError = nullptr; // Nullify pointer after deletion
     }
   }
 }
@@ -648,6 +687,24 @@ bool hasCriticalErrors() {
 
 String formatPressure(String pressure) {
     return pressure + "mbar";
+}
+
+void printQueueContents() {
+    Error* error = nullptr;
+    for (int i = 0; i < errorQueue.getCount(); i++) {
+        if (errorQueue.peekIdx(&error, i) && error != nullptr) {
+            Serial.print("Item ");
+            Serial.print(i+1);
+            Serial.print(": Code: ");
+            Serial.print(error->code);
+            Serial.print(", Level: ");
+            Serial.print(error->level);
+            Serial.print(", Expected: ");
+            Serial.print(error->expected);
+            Serial.print(", Actual: ");
+            Serial.println(error->actual);
+        }
+    }
 }
 
 // Function to return string value associated with the system state 
