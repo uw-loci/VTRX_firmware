@@ -1,5 +1,4 @@
 #include <LiquidCrystal.h>  // Include LCD library
-#include "cppQueue.h"
 #include "972b.h"  // Include the pressure transducer library
 
 /**
@@ -80,6 +79,11 @@ enum ErrorCode {
   UNSAFE_FOR_HV_WARNING
 };
 
+struct PressureData {
+    String rawStr; // Raw string from 972b sensor
+    double value; // Converted double value
+};
+
 enum ErrorLevel {
     WARNING,
     ERROR
@@ -109,8 +113,9 @@ unsigned int errorCount = 0;
 unsigned int currentErrorIndex = 0;
 bool errorQueueFull = false;
 unsigned long lastErrorDisplayTime = 0;     // To track when the last error was displayed
+String dispositionString = "NOMINAL"; // Assume nominal operation state until proven otherwise
 
-double currentPressure = 0.0; // Global definition of current pressure value
+PressureData currentPressure; // Global definition of current pressure value
 extern int __heap_start, *__brkval; // Memory debugging variables
 SystemState currentSystemState = INIT;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);  // Initialize LCD display
@@ -141,7 +146,7 @@ void setup() {
     Serial.print("Free memory: ");
     Serial.print(freeMemory());
     Serial.println(" bytes");
-    Serial.flush();
+    updateLCD();
     do {
         /*** Read in system switch states ***/
         SwitchStates currentStates = readSystemSwitchStates();
@@ -153,11 +158,11 @@ void setup() {
         /*** Pressure Sensor config ***/
         configurePressureSensor();
 
-        // Update the LCD with the latest info
+        // Show the error queue
         printErrorQueue();
+        
+        // Update the LCD with the latest info
         updateLCD();
-        Serial.println("Updated LCD");
-        Serial.flush();
 
         delay(50);
     } while (hasCriticalErrors());
@@ -197,8 +202,6 @@ void updateLCD() {
     // Prepare the state string and error count string
     String stateString = getStateDescription(currentSystemState);
     String errorCountString = "Err:" + String(errorCount);
-    
-    String dispositionString = "NOMINAL"; // Initialize disposition string based on system state
 
     // Determine if there's an error to display and its severity
     if (errorCount > 0 && currentTime - lastErrorDisplayTime >= 1000) {
@@ -254,7 +257,7 @@ void updateLCD() {
     lcd.print(fullTopLine);
 
     // Display pressure information
-    String pressureLine = "Pressure: " + String(currentPressure) + " mbar";
+    String pressureLine = "Pressure: " + currentPressure.rawStr + " mbar";
     if (pressureLine.length() > 20) {
         pressureLine = pressureLine.substring(0, 20); // Truncate to fit the display
     }
@@ -339,27 +342,30 @@ void verifyInitialPressure() {
     if (pressureResult.outcome) {    
         removeErrorFromQueue(PRESSURE_SENSE_ERROR); // clear past errors
         // convert resulting pressure string to double
-        double pressureValue = PressureTransducer::sciToDouble(pressureResult.resultStr);
-        currentPressure = pressureValue; // Update the global value
+        //double pressureValue = PressureTransducer::sciToDouble(pressureResult.resultStr);
+        //currentPressure = pressureValue; // Update the global value
+        currentPressure.rawStr = pressureResult.resultStr;
+        currentPressure.value = PressureTransducer::sciToDouble(pressureResult.resultStr);
 
         // Check if response was invalid prior to conversion
-        if (isnan(pressureValue)) {
+        if (isnan(currentPressure.value)) {
             Serial.print("ERROR: ");
             Serial.println(pressureResult.resultStr);
-            addErrorToQueue(PRESSURE_NACK_ERROR, ERROR, String(EXPECTED_AMBIENT_PRESSURE), pressureResult.resultStr);
+            addErrorToQueue(PRESSURE_NACK_ERROR, ERROR, "1013 mbar", pressureResult.resultStr);
             return;
-        } else if (abs(pressureValue - EXPECTED_AMBIENT_PRESSURE) <= AMBIENT_PRESSURE_THRESHOLD) {
+        } else if (abs(currentPressure.value - EXPECTED_AMBIENT_PRESSURE) <= AMBIENT_PRESSURE_THRESHOLD) {
             // initial pressure reading is within tolerance of expected value
-            Serial.print("Initial pressure reading: ");
-            Serial.print(pressureResult.resultStr);
-            Serial.println(" [mbar]");
             // Remove the unexpected pressure error if it exists
             removeErrorFromQueue(UNEXPECTED_PRESSURE_ERROR);
             removeErrorFromQueue(PRESSURE_NACK_ERROR);
+            
+            Serial.print("Initial pressure reading: ");
+            Serial.print(pressureResult.resultStr);
+            Serial.println(" [mbar]");
         } else {
             removeErrorFromQueue(PRESSURE_NACK_ERROR); // Remove any previous nack error
             // Pressure reading is not at ambient, add or update the unexpected pressure error in the queue
-            String expectedPressureStr = String(EXPECTED_AMBIENT_PRESSURE) + "mbar";
+            String expectedPressureStr = "1013 mbar";
             String actualPressureStr = pressureResult.resultStr + "mbar";
             Serial.print("WARNING: Unexpected initial pressure reading: ");
             Serial.print(actualPressureStr);
@@ -383,23 +389,22 @@ void getCurrentPressure() {
     if (pressureResult.outcome) {
         removeErrorFromQueue(PRESSURE_SENSE_ERROR); // clear any past errors
         // Convert resulting pressure string to double
-        double newPressureValue = PressureTransducer::sciToDouble(pressureResult.resultStr);
+        currentPressure.rawStr = pressureResult.resultStr; // Store raw result
+        currentPressure.value = PressureTransducer::sciToDouble(pressureResult.resultStr); // Convert raw result to double
 
         // Check if the response was invalid prior to conversion
-        if (isnan(newPressureValue)) {
+        if (isnan(currentPressure.value)) {
             Serial.print("ERROR: Invalid pressure reading - ");
             Serial.println(pressureResult.resultStr);
             addErrorToQueue(PRESSURE_NACK_ERROR, ERROR, "Valid Pressure", pressureResult.resultStr);
         } else {
             removeErrorFromQueue(PRESSURE_NACK_ERROR);
-            // Update the global currentPressure variable
-            currentPressure = newPressureValue;
             Serial.print("Current pressure reading: ");
-            Serial.print(currentPressure);
+            Serial.print(currentPressure.rawStr);
             Serial.println(" mbar");
 
             // Determine the system state based on the global pressure value
-            if (currentPressure <= 1.00E-4) {
+            if (currentPressure.value <= 1.00E-4) {
                 currentSystemState = HIGH_VACUUM;
             } else {
                 currentSystemState = STANDARD_PUMP_DOWN;
@@ -414,7 +419,6 @@ void getCurrentPressure() {
 
 void configurePressureSensor() {
     Serial.println("Configuring pressure sensor...");
-
     /*** Set units to MBAR ***/
     CommandResult pressureUnitResponse = sensor.setPressureUnits("MBAR");
     Serial.println("Set pressure units outcome:" + String(pressureUnitResponse.outcome) + ", Response: " + pressureUnitResponse.resultStr);
@@ -444,7 +448,7 @@ void configurePressureSensor() {
         // User tag configuration failed
         addErrorToQueue(
             USER_TAG_NACK_ERROR, // ErrorCode
-            ERROR, // ErrorLevel
+            WARNING, // ErrorLevel
             "EBEAM1 TAG SET", // "Expected" string
             userTagResponse.resultStr // "Actual" string
             ); 
