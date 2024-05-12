@@ -20,7 +20,7 @@ const int rs = 22, en = 23, d4 = 24, d5 = 25, d6 = 26, d7 = 27; // 20x4 LCD pin 
 *	System constants
 **/
 #define DEBUG_MODE                      true        // Set this false to disable debug logging
-#define ERROR_CHECKING_ENABLED          0           // Set this 0 to disable error checking
+#define ERROR_CHECKING_ENABLED          1           // Set this 0 to disable error checking
 #define FIRMWARE_VERSION                "v.1.0"
 #define EXPECTED_AMBIENT_PRESSURE       1010.0      // Nominal ambient pressure [millibar]
 #define AMBIENT_PRESSURE_THRESHOLD      200.0       // 20% tolerance level for ambient [millibar]
@@ -103,11 +103,14 @@ struct Error {
 };
 
 /*** Define the error queue ***/
-cppQueue errorQueue(sizeof(Error), MAX_QUEUE_SIZE, FIFO, true);
+//cppQueue errorQueue(sizeof(Error), MAX_QUEUE_SIZE, FIFO, true);
+Error errorQueue[MAX_QUEUE_SIZE];
 unsigned int currentErrorIndex = 0;
+bool errorQueueFull = false;
 unsigned long lastErrorDisplayTime = 0;     // To track when the last error was displayed
-double currentPressure = 0.0;
-extern int __heap_start, *__brkval;
+
+double currentPressure = 0.0; // Global definition of current pressure value
+extern int __heap_start, *__brkval; // Memory debugging variables
 SystemState currentSystemState = INIT;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);  // Initialize LCD display
 PressureTransducer sensor(PRESSURE_GAUGE_DEFAULT_ADDR, Serial2); // Initialize the Pressure sensor
@@ -185,63 +188,69 @@ void loop() {
 // TODO: implement this
 void updateLCD() {
     unsigned long currentTime = millis();
-    int errorCount = errorQueue.getCount();
+    int errorCount = 0;
+    for (unsigned int i = 0; i < MAX_QUEUE_SIZE; i++) {
+        if (errorQueue[i].asserted) {
+            errorCount++;
+        }
+    }
 
-    // Ensure that state and error count strings do not exceed 20 characters
+    // Prepare the state string and error count string
     String stateString = getStateDescription(currentSystemState);
     String errorCountString = "Err:" + String(errorCount);
 
-    // Determine the length of the state and error count strings to format the display properly
-    int totalLength = stateString.length() + errorCountString.length();
-    String fullTopLine;
+    // Clear the LCD to prevent any residual characters from previous updates
+    lcd.clear();
 
-    if (totalLength <= 20) {
-        // Calculate spaces to add
-        int spaceCount = 20 - totalLength;
-        fullTopLine = stateString + String(spaceCount, ' ') + errorCountString;
-    } else {
-        // Truncate the state to fit the error count within 20 characters
-        int truncateLength = 20 - errorCountString.length();
-        stateString = stateString.substring(0, truncateLength);
-        fullTopLine = stateString + errorCountString;
-    }
+    // Print state string
+    lcd.setCursor(0, 0); // Start at the first column of the first row
+    lcd.print(stateString);
 
-    // Display the top line
-    lcd.setCursor(0, 0); // (col, row)
-    lcd.print(fullTopLine);
-    Serial.println(fullTopLine);
-    Serial.flush();
+    // Print error count, right-aligned
+    int errorStringStartPos = 20 - errorCountString.length(); // Calculate starting position for right alignment
+    lcd.setCursor(errorStringStartPos, 0); // Set cursor position for error count
+    lcd.print(errorCountString);
 
-    String pressureLine = "Pressure:" + String(currentPressure) + " mbar";
+    // Print the pressure reading, ensuring it fits on the screen
+    String pressureLine = "Pressure: " + String(currentPressure) + " mbar";
     if (pressureLine.length() > 20) {
-        pressureLine = pressureLine.substring(0, 20); // TODO: prioritize resultStr over "Pressure:" characters
+        pressureLine = pressureLine.substring(0, 20); // Truncate to fit the display
     }
-
-    // Display pressure reading
     lcd.setCursor(0, 1);
     lcd.print(pressureLine);
 
+    // Display error details, updating every 2 seconds
     if (currentTime - lastErrorDisplayTime >= 2000) { // Change errors every 2 seconds
         lastErrorDisplayTime = currentTime;
         lcd.setCursor(0, 2); // Set the cursor for error details
         if (errorCount > 0) {
-            Error displayError;
-            errorQueue.peekIdx(&displayError, currentErrorIndex);
+            bool found = false;
+            for (int i = 0; i < MAX_QUEUE_SIZE; i++) {
+                int idx = (currentErrorIndex + i) % MAX_QUEUE_SIZE;
+                if (errorQueue[idx].asserted) {
+                    currentErrorIndex = idx;
+                    found = true;
+                    break;
+                }
+            }
 
-            String expectedLine = "Exp: " + displayError.expected;
-            String actualLine = "Act: " + displayError.actual;
+            if (found) {
+                Error displayError = errorQueue[currentErrorIndex];
+                String expectedLine = "Exp: " + displayError.expected;
+                String actualLine = "Act: " + displayError.actual;
 
-            // Truncate lines to fit within 20 characters
-            if (expectedLine.length() > 20) expectedLine = expectedLine.substring(0, 20);
-            if (actualLine.length() > 20) actualLine = actualLine.substring(0, 20);
+                // Ensure each line does not exceed the LCD width
+                if (expectedLine.length() > 20) expectedLine = expectedLine.substring(0, 20);
+                if (actualLine.length() > 20) actualLine = actualLine.substring(0, 20);
 
-            lcd.setCursor(0, 2); // (col, row)
-            lcd.print(expectedLine);
-            lcd.setCursor(0, 3);
-            lcd.print(actualLine);
+                lcd.setCursor(0, 2);
+                lcd.print(expectedLine);
+                lcd.setCursor(0, 3);
+                lcd.print(actualLine);
 
-            // Cycle through errors
-            currentErrorIndex = (currentErrorIndex + 1) % errorCount;
+                // Prepare to display the next error in the next cycle
+                currentErrorIndex = (currentErrorIndex + 1) % MAX_QUEUE_SIZE;
+            }
         } else {
             lcd.setCursor(0, 2);
             lcd.print("NOMINAL");
@@ -422,6 +431,7 @@ void configurePressureSensor() {
         Serial.println("Pressure Unit configuration succeeded. Removed error from queue");
         Serial.flush();
     }
+    updateLCD();
 
     /*** Set user tag ***/
     CommandResult userTagResponse = sensor.setUserTag("EBEAM1"); 
@@ -441,8 +451,7 @@ void configurePressureSensor() {
         Serial.println("972b User Tag configuration succeeded. Removed error from queue");
         Serial.flush();
     }
-
-    delay(100);
+    updateLCD();
 
     /*** Query the sensor status ***/
     CommandResult currentStatus = sensor.status();
@@ -540,86 +549,39 @@ void startupMsg() {
 
 void addErrorToQueue(ErrorCode code, ErrorLevel level, String expected, String actual) {
     #if ERROR_CHECKING_ENABLED
+    unsigned long currentTime = millis();
 
-    if (errorQueue.getCount() >= MAX_QUEUE_SIZE) {
-        Serial.println("Error queue is full. Oldest error will be removed");
-        Error* oldError;
-        if (errorQueue.pop(&oldError)) { // pop returns true if the operation is successful
-            delete oldError; // Free memory allocated for the oldest error
-        }
-    }
-    
-    Error* currentError = nullptr;
-    bool found = false;
-    
-    Serial.print("Adding Error:");
-    Serial.print(code);
-    Serial.print("  Level:");
-    Serial.print(level);
-    Serial.print("  Expected:");
-    Serial.print(expected);
-    Serial.print("  Actual:");
-    Serial.println(actual);
-    Serial.flush();
-    
-    // Iterate through the existing queue to see if it was already added and update the error
-    for (int i = 0; i < errorQueue.getCount(); i++) {
-        if (errorQueue.peekIdx(&currentError, i) && currentError != nullptr){
-            Serial.print("Checking error at index ");
-            Serial.println(i);
-            
-            if (currentError->code == code) {
-                // Error is pre-existing
-                found = true;
-                // Update the error details
-                currentError->level = level;
-                currentError->expected = expected;
-                currentError->actual = actual;
-                currentError->asserted = true;
-                currentError->timestamp = millis();
-                errorQueue.drop(); // Drop the old version
-                errorQueue.push(&currentError); // Add the updated version
-                Serial.println("Updated existing error in queue");
-                break;
-            }
+    // Check if the error already exists and update it
+    for (unsigned int i = 0; i < MAX_QUEUE_SIZE; ++i) {
+        if (errorQueue[i].code == code && errorQueue[i].asserted) {
+            errorQueue[i].level = level;
+            errorQueue[i].expected = expected;
+            errorQueue[i].actual = actual;
+            errorQueue[i].timestamp = currentTime;
+            errorQueue[i].asserted = true;
+            return;
         }
     }
 
-    // Add new error if not found
-    if (!found) {
+    // Add new error at the current index
+    errorQueue[currentErrorIndex].code = code;
+    errorQueue[currentErrorIndex].level = level;
+    errorQueue[currentErrorIndex].expected = expected;
+    errorQueue[currentErrorIndex].actual = actual;
+    errorQueue[currentErrorIndex].timestamp = currentTime;
+    errorQueue[currentErrorIndex].asserted = true;
 
-        Error* newError = new Error{code, level, expected, actual, true, millis()};
-        if (newError != nullptr) {
-            errorQueue.push(&newError);
-            Serial.println("Added new error to queue.");
-        } else {
-            Serial.println("Failed to allocate memory for new error");
-        }
-    }
-
-    Serial.println("Updated queue contents:");
-    printQueueContents();
-    
-    printFreeMemory();
-    delay(50);
+    // Increment index and wrap around if necessary
+    currentErrorIndex = (currentErrorIndex + 1) % MAX_QUEUE_SIZE;
+    if (currentErrorIndex == 0) errorQueueFull = true; // Array has wrapped at least once
     #endif
 }
 
 void removeErrorFromQueue(ErrorCode code) {
     #if ERROR_CHECKING_ENABLED
-    
-    int queueSize = errorQueue.getCount();
-    Error* currentError = nullptr;
-
-    for(int i = 0; i < queueSize; i++) {
-        errorQueue.pop(&currentError); // remove the error
-        if (currentError == nullptr) continue; // Consistency check
-
-        if (currentError->code != code) {
-            errorQueue.push(&currentError);
-        } else {
-            delete currentError; // Free the allocated memory for the remove error
-            currentError = nullptr; // Nullify the pointer after deletion
+    for (unsigned int i = 0; i < MAX_QUEUE_SIZE; ++i) {
+        if (errorQueue[i].code == code) {
+            errorQueue[i].asserted = false; // Mark as inactive
         }
     }
     #endif
@@ -628,44 +590,28 @@ void removeErrorFromQueue(ErrorCode code) {
 void cleanExpiredErrors() { 
     #if ERROR_CHECKING_ENABLED
     unsigned long currentTime = millis();
-    int queueSize = errorQueue.getCount();
-    Error* currentError = nullptr;
-
-    for (int i = 0; i < queueSize; i++) {
-        errorQueue.peek(&currentError);
-        errorQueue.pop(&currentError);  // Remove the current error from the queue
-        if (currentError == nullptr) continue; // Consistency check
-
-        if (currentTime - currentError->timestamp < AUTO_RESET_TIMEOUT || currentError->asserted) {
-        // Keep errors that are within the timeout or are asserted
-        errorQueue.push(&currentError);
-        } else {
-            delete currentError; // Free the memory if the error is expired 
-            currentError = nullptr; // Nullify pointer after deletion
+    for (unsigned int i = 0; i < MAX_QUEUE_SIZE; ++i) {
+        if (currentTime - errorQueue[i].timestamp > AUTO_RESET_TIMEOUT && errorQueue[i].asserted) {
+            errorQueue[i].asserted = false; // Mark as not active
         }
     }
     #endif
 }
 
-
 bool isErrorPresent(ErrorCode code) {
-    int queueSize = errorQueue.getCount(); // Get the number of errors in the queue
-    Error* currentError = nullptr;
-    for (int i = 0; i < queueSize; i++) {
-        errorQueue.peekIdx(&currentError, i); // Peek at the error at index i
-        if (currentError->code == code && currentError->asserted) {
-            return true; // Found the error
+    for (int i = 0; i < MAX_QUEUE_SIZE; i++) {
+        if (errorQueue[i].code == code && errorQueue[i].asserted) {
+            return true; // Error found and it is asserted (active)
         }
     }
     return false; // Error not found
 }
 
 bool hasCriticalErrors() {
-    int queueSize = errorQueue.getCount(); // Get the number of errors in the queue
-    Error* currentError = nullptr;
-    for (int i = 0; i < queueSize; i++) {
-        errorQueue.peekIdx(&currentError, i); // Peek at the error at index i
-        if (currentError->level == ERROR && currentError->asserted) {
+    // We'll iterate over the entire static error array
+    for (int i = 0; i < MAX_QUEUE_SIZE; i++) {
+        // Check if the error is asserted and if its level is ERROR
+        if (errorQueue[i].level == ERROR && errorQueue[i].asserted) {
             Serial.println("Critical error found");
             return true; // Critical error found, no need to continue checking
         }
@@ -678,32 +624,14 @@ String formatPressure(String pressure) {
     return pressure + "mbar";
 }
 
-void printQueueContents() {
-    Error* error = nullptr;
-    for (int i = 0; i < errorQueue.getCount(); i++) {
-        if (errorQueue.peekIdx(&error, i) && error != nullptr) {
-            Serial.print("Item ");
-            Serial.print(i+1);
-            Serial.print(": Code: ");
-            Serial.print(error->code);
-            Serial.print(", Level: ");
-            Serial.print(error->level);
-            Serial.print(", Expected: ");
-            Serial.print(error->expected);
-            Serial.print(", Actual: ");
-            Serial.println(error->actual);
-        }
-    }
-}
-
 // Function to return string value associated with the system state 
 const char* getStateDescription(SystemState state) {
     switch (state) {
-        case INIT:               return "Init";
-        case STANDARD_PUMP_DOWN: return "PDOWN";
-        case HIGH_VACUUM:        return "HVAC";
-        case REMOTE_CONTROL:     return "REMOTE";
-        default:                 return "PDOWN";
+        case INIT:               return "INIT:";
+        case STANDARD_PUMP_DOWN: return "PDOWN:";
+        case HIGH_VACUUM:        return "HVAC:";
+        case REMOTE_CONTROL:     return "REMOTE:";
+        default:                 return "PDOWN:";
     }
 }
 
