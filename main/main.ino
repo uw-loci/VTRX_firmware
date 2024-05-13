@@ -20,7 +20,7 @@ const int rs = 22, en = 23, d4 = 24, d5 = 25, d6 = 26, d7 = 27; // 20x4 LCD pin 
 **/
 #define DEBUG_MODE                      true        // Set this false to disable debug logging
 #define ERROR_CHECKING_ENABLED          1           // Set this 0 to disable error checking
-#define FIRMWARE_VERSION                "v.1.0"
+#define FIRMWARE_VERSION                "v.1.1"
 #define EXPECTED_AMBIENT_PRESSURE       1010.0      // Nominal ambient pressure [millibar]
 #define AMBIENT_PRESSURE_THRESHOLD      200.0       // 20% tolerance level for ambient [millibar]
 #define PRESSURE_GAUGE_DEFAULT_ADDR     "253"       // Default 972b device address
@@ -239,10 +239,18 @@ void updateLCD() {
         }
     } else {
         lastErrorDisplayTime = currentTime; // Reset this timer whenever there are no errors to display
+        dispositionString = "NOMINAL";
+        if (currentSystemState == STANDARD_PUMP_DOWN) {
+            lcd.setCursor(0, 3);
+            lcd.print("  High Voltage OFF");
+        } else if (currentSystemState == HIGH_VACUUM) {
+            lcd.setCursor(0, 3);
+            lcd.print("  HIGH VOLTAGE ON!");
+        }
     }
 
     // Format the top line to include state, disposition, and error count
-    String fullTopLine = stateString + "  " + dispositionString;
+    String fullTopLine = stateString + " " + dispositionString;
     int fullLength = fullTopLine.length() + errorCountString.length();
 
     // Calculate spacing to right-align the error count
@@ -257,7 +265,7 @@ void updateLCD() {
     lcd.print(fullTopLine);
 
     // Display pressure information
-    String pressureLine = "Pressure: " + currentPressure.rawStr + " mbar";
+    String pressureLine = "Press: " + currentPressure.rawStr + " mbar";
     if (pressureLine.length() > 20) {
         pressureLine = pressureLine.substring(0, 20); // Truncate to fit the display
     }
@@ -439,6 +447,7 @@ void configurePressureSensor() {
     }
     printErrorQueue();
     updateLCD();
+    delay(50);
 
     /*** Set user tag ***/
     CommandResult userTagResponse = sensor.setUserTag("EBEAM1"); 
@@ -460,6 +469,7 @@ void configurePressureSensor() {
     }
     printErrorQueue();
     updateLCD();
+    delay(50);
 
     /*** Query the sensor status ***/
     CommandResult currentStatus = sensor.status();
