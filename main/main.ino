@@ -12,9 +12,8 @@
 #define TURBO_GATE_VALVE_CLOSED_PIN     33
 #define ARGON_GATE_VALVE_CLOSED_PIN     32
 #define ARGON_GATE_VALVE_OPEN_PIN       31
-//const int rs = 12, en = 10, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // 20x4 LCD pin connections
-//const int rs = 22, en = 24, d4 = 26, d5 = 28, d6 = 30, d7 = 32; // 20x4 LCD pin connections
-const int rs = 22, en = 23, d4 = 24, d5 = 25, d6 = 26, d7 = 27; // 20x4 LCD pin connections
+const int rs = 12, en = 10, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // 20x4 LCD pin connections
+//const int rs = 22, en = 23, d4 = 24, d5 = 25, d6 = 26, d7 = 27; // 20x4 LCD pin connections
 /**
 *	System constants
 **/
@@ -27,7 +26,7 @@ const int rs = 22, en = 23, d4 = 24, d5 = 25, d6 = 26, d7 = 27; // 20x4 LCD pin 
 #define PRESSURE_READING_RETRY_LIMIT    3           // Attempts allowed before error. TODO: this should probably live in 972b driver
 #define AUTO_RESET_TIMEOUT              600000      // Time elapsed limit for non-persistent warnings   [milliseconds]
 #define MAX_QUEUE_SIZE                  10          // Errors that can simulataneously exist in queue
-#define SAFETY_RELAY_THRESHOLD          "2.00E+0"   // Pressure threshold [mbar]
+#define SAFETY_RELAY_THRESHOLD          "2.00E+0"   // Safety Relay pressure threshold [mbar]
 #define SAFETY_RELAY_DIRECTION          "BELOW"     // Determines whether the relay is energized above or below the setpoint value
 #define SAFETY_RELAY_HYSTERESIS_VALUE   "2.10E+0"    // The pressure value at which the setpoint relay will be de-energized [mbar]
 #define SAFETY_RELAY_ENABLE             "ON"
@@ -412,6 +411,7 @@ void getCurrentPressure() {
             Serial.println(" mbar");
 
             // Determine the system state based on the global pressure value
+            // if (currentPressure.value <= PressureTransducer::sciToDouble(SAFETY_RELAY_THRESHOLD)) 
             if (currentPressure.value <= 1.00E-4) {
                 currentSystemState = HIGH_VACUUM;
             } else {
