@@ -12,8 +12,9 @@
 #define TURBO_GATE_VALVE_CLOSED_PIN     33
 #define ARGON_GATE_VALVE_CLOSED_PIN     32
 #define ARGON_GATE_VALVE_OPEN_PIN       31
-const int rs = 12, en = 10, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // 20x4 LCD pin connections
-//const int rs = 22, en = 23, d4 = 24, d5 = 25, d6 = 26, d7 = 27; // 20x4 LCD pin connections
+//const int rs = 12, en = 10, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // 20x4 LCD pin connections
+//const int rs = 22, en = 24, d4 = 26, d5 = 28, d6 = 30, d7 = 32; // 20x4 LCD pin connections
+const int rs = 22, en = 23, d4 = 24, d5 = 25, d6 = 26, d7 = 27; // 20x4 LCD pin connections
 /**
 *	System constants
 **/
@@ -22,11 +23,12 @@ const int rs = 12, en = 10, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // 20x4 LCD pin conn
 #define FIRMWARE_VERSION                "v.1.1"
 #define EXPECTED_AMBIENT_PRESSURE       1010.0      // Nominal ambient pressure [millibar]
 #define AMBIENT_PRESSURE_THRESHOLD      200.0       // 20% tolerance level for ambient [millibar]
+#define HIGH_VACUUM_THRESHOLD           1.00E-4
 #define PRESSURE_GAUGE_DEFAULT_ADDR     "253"       // Default 972b device address
 #define PRESSURE_READING_RETRY_LIMIT    3           // Attempts allowed before error. TODO: this should probably live in 972b driver
 #define AUTO_RESET_TIMEOUT              600000      // Time elapsed limit for non-persistent warnings   [milliseconds]
 #define MAX_QUEUE_SIZE                  10          // Errors that can simulataneously exist in queue
-#define SAFETY_RELAY_THRESHOLD          "2.00E+0"   // Safety Relay pressure threshold [mbar]
+#define SAFETY_RELAY_THRESHOLD          "2.00E+0"   // Pressure threshold [mbar]
 #define SAFETY_RELAY_DIRECTION          "BELOW"     // Determines whether the relay is energized above or below the setpoint value
 #define SAFETY_RELAY_HYSTERESIS_VALUE   "2.10E+0"    // The pressure value at which the setpoint relay will be de-energized [mbar]
 #define SAFETY_RELAY_ENABLE             "ON"
@@ -145,7 +147,7 @@ void setup() {
     Serial.print("Free memory: ");
     Serial.print(freeMemory());
     Serial.println(" bytes");
-    updateLCD();
+    //updateLCD();
     do {
         /*** Read in system switch states ***/
         SwitchStates currentStates = readSystemSwitchStates();
@@ -188,88 +190,71 @@ void loop() {
     cleanExpiredErrors();
 
     // slow down looping speed a bit
-    delay(50);
+    //delay(50);
 }
 
 // TODO: implement this
 void updateLCD() {
+    static unsigned long lastUpdateTime = 0;
+    static int currentDisplayIndex = 0; // Track which message to display
+
     unsigned long currentTime = millis();
-
-    // Clear the LCD to avoid any leftover characters
-    lcd.clear();
-
-    // Prepare the state string and error count string
-    String stateString = getStateDescription(currentSystemState);
-    String errorCountString = "Err:" + String(errorCount);
-
-    // Determine if there's an error to display and its severity
-    if (errorCount > 0 && currentTime - lastErrorDisplayTime >= 1000) {
-        lastErrorDisplayTime = currentTime;
-        bool found = false;
-        int startIndex = (currentErrorIndex + 1) % MAX_QUEUE_SIZE;
-        for (int i = 0; i < MAX_QUEUE_SIZE; i++) {
-            int idx = (startIndex + i) % MAX_QUEUE_SIZE;
-            if (errorQueue[idx].asserted) {
-                currentErrorIndex = idx;
-                found = true;
-                break;
-            }
-        }
-
-        if (found) {
-            Error displayError = errorQueue[currentErrorIndex];
-            dispositionString = (displayError.level == WARNING) ? "WARNING" : "ERROR";
-
-            // Update error details on the second row
-            String expectedLine = "Exp: " + displayError.expected;
-            String actualLine = "Act: " + displayError.actual;
-
-            // Ensure each line does not exceed the LCD width
-            if (expectedLine.length() > 20) expectedLine = expectedLine.substring(0, 20);
-            if (actualLine.length() > 20) actualLine = actualLine.substring(0, 20);
-
-            lcd.setCursor(0, 2);
-            lcd.print(expectedLine);
-            lcd.setCursor(0, 3);
-            lcd.print(actualLine);
-
-            // Prepare to display the next error in the next cycle
-            // currentErrorIndex = (currentErrorIndex + 1) % MAX_QUEUE_SIZE;
-        }
-    } else {
-        lastErrorDisplayTime = currentTime; // Reset this timer whenever there are no errors to display
-        dispositionString = "NOMINAL";
-        if (currentSystemState == STANDARD_PUMP_DOWN) {
-            lcd.setCursor(0, 3);
-            lcd.print("  High Voltage OFF");
-        } else if (currentSystemState == HIGH_VACUUM) {
-            lcd.setCursor(0, 3);
-            lcd.print("  HIGH VOLTAGE ON!");
-        }
+    if (currentTime - lastUpdateTime >= 3000) { // Update every 3 seconds
+        lastUpdateTime = currentTime;
+        currentDisplayIndex = (currentDisplayIndex + 1) % (errorCount + 1); // Include HVOLT status in cycle
     }
 
-    // Format the top line to include state, disposition, and error count
-    String fullTopLine = stateString + " " + dispositionString;
-    int fullLength = fullTopLine.length() + errorCountString.length();
+    lcd.clear();
 
-    // Calculate spacing to right-align the error count
-    int spacesNeeded = 20 - fullLength;
+    // Prepare the top line with state and error count
+    String stateString = getStateDescription(currentSystemState);
+    String errorCountString = "Err:" + String(errorCount);
+    String fullTopLine = stateString + " " + (errorCount > 0 ? "ERRORS" : "NOMINAL");
+    int spacesNeeded = 20 - fullTopLine.length() - errorCountString.length();
     for (int i = 0; i < spacesNeeded; i++) {
         fullTopLine += " ";
     }
     fullTopLine += errorCountString;
-
-    // Display the formatted top line
-    lcd.setCursor(0, 0); // Set cursor at the beginning of the first line
+    lcd.setCursor(0, 0);
     lcd.print(fullTopLine);
 
-    // Display pressure information
+    // Show pressure on the second line
     String pressureLine = "Press: " + currentPressure.rawStr + " mbar";
     if (pressureLine.length() > 20) {
-        pressureLine = pressureLine.substring(0, 20); // Truncate to fit the display
+        pressureLine = pressureLine.substring(0, 20);
     }
     lcd.setCursor(0, 1);
     lcd.print(pressureLine);
+
+    // Cycle through errors and system status
+    if (currentDisplayIndex < errorCount) {
+        // Ensure we are displaying a valid error that is asserted
+        int displayErrorIndex = 0;
+        for (int i = 0, shown = 0; i < MAX_QUEUE_SIZE && shown <= currentDisplayIndex; i++) {
+            if (errorQueue[i].asserted) {
+                if (shown == currentDisplayIndex) {
+                    displayErrorIndex = i;
+                    break;
+                }
+                shown++;
+            }
+        }
+
+        // Display the error
+        String expectedLine = "Exp: " + errorQueue[displayErrorIndex].expected;
+        String actualLine = "Act: " + errorQueue[displayErrorIndex].actual;
+        if (expectedLine.length() > 20) expectedLine = expectedLine.substring(0, 20);
+        if (actualLine.length() > 20) actualLine = actualLine.substring(0, 20);
+        lcd.setCursor(0, 2);
+        lcd.print(expectedLine);
+        lcd.setCursor(0, 3);
+        lcd.print(actualLine);
+    } else {
+        // Show HV status based on the current system state
+        String hvStatus = (currentSystemState == HIGH_VACUUM) ? "   SAFE FOR HVOLT" : "  UNSAFE FOR HVOLT";
+        lcd.setCursor(0, 3);
+        lcd.print(hvStatus);
+    }
 }
 
 /**
@@ -358,7 +343,7 @@ void verifyInitialPressure() {
         if (isnan(currentPressure.value)) {
             Serial.print("ERROR: ");
             Serial.println(pressureResult.resultStr);
-            addErrorToQueue(PRESSURE_NACK_ERROR, ERROR, "1013 mbar", pressureResult.resultStr);
+            addErrorToQueue(PRESSURE_NACK_ERROR, ERROR, "1.01E3 mbar", pressureResult.resultStr);
             return;
         } else if (abs(currentPressure.value - EXPECTED_AMBIENT_PRESSURE) <= AMBIENT_PRESSURE_THRESHOLD) {
             // initial pressure reading is within tolerance of expected value
@@ -411,7 +396,6 @@ void getCurrentPressure() {
             Serial.println(" mbar");
 
             // Determine the system state based on the global pressure value
-            // if (currentPressure.value <= PressureTransducer::sciToDouble(SAFETY_RELAY_THRESHOLD)) 
             if (currentPressure.value <= 1.00E-4) {
                 currentSystemState = HIGH_VACUUM;
             } else {
@@ -447,7 +431,6 @@ void configurePressureSensor() {
     }
     printErrorQueue();
     updateLCD();
-    delay(50);
 
     /*** Set user tag ***/
     CommandResult userTagResponse = sensor.setUserTag("EBEAM1"); 
@@ -469,7 +452,6 @@ void configurePressureSensor() {
     }
     printErrorQueue();
     updateLCD();
-    delay(50);
 
     /*** Query the sensor status ***/
     CommandResult currentStatus = sensor.status();
