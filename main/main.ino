@@ -189,6 +189,9 @@ void loop() {
     // Clean up any temporary errors that have expired
     cleanExpiredErrors();
 
+    // Update LabVIEW with latest info
+    sendDataToLabVIEW();
+
     // slow down looping speed a bit
     //delay(50);
 }
@@ -557,7 +560,23 @@ void configurePressureSensor() {
 
 // TODO
 void sendDataToLabVIEW() {
-    // This can live outside the loop() function for better code organization
+    
+    // Get current system switch states
+    SwitchStates state = readSystemSwitchStates();
+    String delimiter = ";";
+
+    String dataString = String(currentPressure.value, 3); // 3 decimal places of precision
+    dataString += delimeter + String(state.pumpsPowerOn);
+    dataString += delimeter + String(state.turboRotorOn);
+    dataString += delimeter + String(state.turboVentOpen);
+    dataString += delimeter + String(state.pressureGaugePowerOn);
+    dataString += delimeter + String(state.turboGateValveOpen);
+    dataString += delimeter + String(state.turboGateValveClosed);
+    dataString += delimeter + String(state.argonGateValveClosed);
+    dataString += delimter + String(state.argonGateValveOpen);
+    
+    // Send the data string to LabVIEW through Serial1
+    Serial1.println(dataString);
 }
 
 void startupMsg() {
