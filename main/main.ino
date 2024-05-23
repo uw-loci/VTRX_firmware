@@ -200,14 +200,16 @@ void loop() {
 void updateLCD() {
     static unsigned long lastUpdateTime = 0;
     static int currentDisplayIndex = 0; // Track which message to display
+    static String lastDisplayedTopLine = "";
+    static String lastDisplayedPressureLine = "";
+    static String lastDisplayedErrorLine = "";
+    static String lastDisplayedHvStatus = "";
 
     unsigned long currentTime = millis();
     if (currentTime - lastUpdateTime >= 3000) { // Update every 3 seconds
         lastUpdateTime = currentTime;
         currentDisplayIndex = (currentDisplayIndex + 1) % (errorCount + 1); // Include HVOLT status in cycle
     }
-
-    lcd.clear();
 
     // Prepare the top line with state and error count
     String stateString = getStateDescription(currentSystemState);
@@ -218,20 +220,18 @@ void updateLCD() {
         fullTopLine += " ";
     }
     fullTopLine += errorCountString;
-    lcd.setCursor(0, 0);
-    lcd.print(fullTopLine);
 
     // Show pressure on the second line
     String pressureLine = "Press: " + currentPressure.rawStr + " mbar";
     if (pressureLine.length() > 20) {
         pressureLine = pressureLine.substring(0, 20);
     }
-    lcd.setCursor(0, 1);
-    lcd.print(pressureLine);
 
-    // Cycle through errors and system status
+    // Determine lines to show for errors and system status
+    String expectedLine = "";
+    String actualLine = "";
+    String hvStatus = "";
     if (currentDisplayIndex < errorCount) {
-        // Ensure we are displaying a valid error that is asserted
         int displayErrorIndex = 0;
         for (int i = 0, shown = 0; i < MAX_QUEUE_SIZE && shown <= currentDisplayIndex; i++) {
             if (errorQueue[i].asserted) {
@@ -242,21 +242,37 @@ void updateLCD() {
                 shown++;
             }
         }
+        expectedLine = "Exp: " + errorQueue[displayErrorIndex].expected;
+        actualLine = "Act: " + errorQueue[displayErrorIndex].actual;
+        expectedLine = expectedLine + String("                    ").substring(0, 20 - expectedLine.length()); // Pad or trim to 20 characters
+        actualLine = actualLine + String("                    ").substring(0, 20 - actualLine.length()); // Pad or trim to 20 characters
+    } else {
+        hvStatus = (currentSystemState == HIGH_VACUUM) ? "   SAFE FOR HVOLT   " : "  UNSAFE FOR HVOLT  "; // Pad to 20 characters
+    }
 
-        // Display the error
-        String expectedLine = "Exp: " + errorQueue[displayErrorIndex].expected;
-        String actualLine = "Act: " + errorQueue[displayErrorIndex].actual;
-        if (expectedLine.length() > 20) expectedLine = expectedLine.substring(0, 20);
-        if (actualLine.length() > 20) actualLine = actualLine.substring(0, 20);
+    // Update the LCD content only if there's a change
+    if (lastDisplayedTopLine != fullTopLine) {
+        lcd.setCursor(0, 0);
+        lcd.print(fullTopLine);
+        lastDisplayedTopLine = fullTopLine;
+    }
+    if (lastDisplayedPressureLine != pressureLine) {
+        lcd.setCursor(0, 1);
+        lcd.print(pressureLine);
+        lastDisplayedPressureLine = pressureLine;
+    }
+    if (lastDisplayedErrorLine != expectedLine || lastDisplayedErrorLine != actualLine) {
         lcd.setCursor(0, 2);
         lcd.print(expectedLine);
         lcd.setCursor(0, 3);
         lcd.print(actualLine);
-    } else {
-        // Show HV status based on the current system state
-        String hvStatus = (currentSystemState == HIGH_VACUUM) ? "   SAFE FOR HVOLT" : "  UNSAFE FOR HVOLT";
+        lastDisplayedErrorLine = expectedLine;
+        lastDisplayedErrorLine = actualLine;
+    }
+    if (lastDisplayedHvStatus != hvStatus && currentDisplayIndex >= errorCount) {
         lcd.setCursor(0, 3);
         lcd.print(hvStatus);
+        lastDisplayedHvStatus = hvStatus;
     }
 }
 
@@ -566,14 +582,14 @@ void sendDataToLabVIEW() {
     String delimiter = ";";
 
     String dataString = String(currentPressure.value, 3); // 3 decimal places of precision
-    dataString += delimeter + String(state.pumpsPowerOn);
-    dataString += delimeter + String(state.turboRotorOn);
-    dataString += delimeter + String(state.turboVentOpen);
-    dataString += delimeter + String(state.pressureGaugePowerOn);
-    dataString += delimeter + String(state.turboGateValveOpen);
-    dataString += delimeter + String(state.turboGateValveClosed);
-    dataString += delimeter + String(state.argonGateValveClosed);
-    dataString += delimter + String(state.argonGateValveOpen);
+    dataString += delimiter + String(state.pumpsPowerOn);
+    dataString += delimiter + String(state.turboRotorOn);
+    dataString += delimiter + String(state.turboVentOpen);
+    dataString += delimiter + String(state.pressureGaugePowerOn);
+    dataString += delimiter + String(state.turboGateValveOpen);
+    dataString += delimiter + String(state.turboGateValveClosed);
+    dataString += delimiter + String(state.argonGateValveClosed);
+    dataString += delimiter + String(state.argonGateValveOpen);
     
     // Send the data string to LabVIEW through Serial1
     Serial1.println(dataString);
