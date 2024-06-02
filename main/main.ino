@@ -20,13 +20,13 @@ const int rs = 22, en = 23, d4 = 24, d5 = 25, d6 = 26, d7 = 27; // 20x4 LCD pin 
 **/
 #define DEBUG_MODE                      true        // Set this false to disable debug logging
 #define ERROR_CHECKING_ENABLED          1           // Set this 0 to disable error checking
-#define FIRMWARE_VERSION                "v.1.1"
+#define FIRMWARE_VERSION                "v.1.3"
 #define EXPECTED_AMBIENT_PRESSURE       1010.0      // Nominal ambient pressure [millibar]
 #define AMBIENT_PRESSURE_THRESHOLD      200.0       // 20% tolerance level for ambient [millibar]
 #define HIGH_VACUUM_THRESHOLD           1.00E-4
 #define PRESSURE_GAUGE_DEFAULT_ADDR     "253"       // Default 972b device address
 #define PRESSURE_READING_RETRY_LIMIT    3           // Attempts allowed before error. TODO: this should probably live in 972b driver
-#define AUTO_RESET_TIMEOUT              600000      // Time elapsed limit for non-persistent warnings   [milliseconds]
+#define AUTO_RESET_TIMEOUT              5000        // Time elapsed limit for non-persistent warnings   [milliseconds]
 #define MAX_QUEUE_SIZE                  10          // Errors that can simulataneously exist in queue
 #define SAFETY_RELAY_THRESHOLD          "2.00E+0"   // Pressure threshold [mbar]
 #define SAFETY_RELAY_DIRECTION          "BELOW"     // Determines whether the relay is energized above or below the setpoint value
@@ -170,6 +170,8 @@ void setup() {
 }
 
 void loop() {
+    static unsigned long lastDashboardUpdate = 0;
+    unsigned long currentTime = millis();
 
     // Read system switch states
     SwitchStates currentStates = readSystemSwitchStates();
@@ -189,27 +191,25 @@ void loop() {
     // Clean up any temporary errors that have expired
     cleanExpiredErrors();
 
-    // Update LabVIEW with latest info
-    sendDataToLabVIEW();
-
-    // slow down looping speed a bit
-    //delay(50);
+    // Update Python dashboard with latest info
+    bool hasErrors = errorCount > 0;
+    if (hasErrors || (currentTime - lastDashboardUpdate >=500)) {
+        sendDataToDashboard();
+    }
 }
 
 // TODO: implement this
 void updateLCD() {
     static unsigned long lastUpdateTime = 0;
     static int currentDisplayIndex = 0; // Track which message to display
-    static String lastDisplayedTopLine = "";
-    static String lastDisplayedPressureLine = "";
-    static String lastDisplayedErrorLine = "";
-    static String lastDisplayedHvStatus = "";
 
     unsigned long currentTime = millis();
     if (currentTime - lastUpdateTime >= 3000) { // Update every 3 seconds
         lastUpdateTime = currentTime;
         currentDisplayIndex = (currentDisplayIndex + 1) % (errorCount + 1); // Include HVOLT status in cycle
     }
+
+    lcd.clear();
 
     // Prepare the top line with state and error count
     String stateString = getStateDescription(currentSystemState);
@@ -220,18 +220,20 @@ void updateLCD() {
         fullTopLine += " ";
     }
     fullTopLine += errorCountString;
+    lcd.setCursor(0, 0);
+    lcd.print(fullTopLine);
 
     // Show pressure on the second line
     String pressureLine = "Press: " + currentPressure.rawStr + " mbar";
     if (pressureLine.length() > 20) {
         pressureLine = pressureLine.substring(0, 20);
     }
+    lcd.setCursor(0, 1);
+    lcd.print(pressureLine);
 
-    // Determine lines to show for errors and system status
-    String expectedLine = "";
-    String actualLine = "";
-    String hvStatus = "";
+    // Cycle through errors and system status
     if (currentDisplayIndex < errorCount) {
+        // Ensure we are displaying a valid error that is asserted
         int displayErrorIndex = 0;
         for (int i = 0, shown = 0; i < MAX_QUEUE_SIZE && shown <= currentDisplayIndex; i++) {
             if (errorQueue[i].asserted) {
@@ -242,37 +244,21 @@ void updateLCD() {
                 shown++;
             }
         }
-        expectedLine = "Exp: " + errorQueue[displayErrorIndex].expected;
-        actualLine = "Act: " + errorQueue[displayErrorIndex].actual;
-        expectedLine = expectedLine + String("                    ").substring(0, 20 - expectedLine.length()); // Pad or trim to 20 characters
-        actualLine = actualLine + String("                    ").substring(0, 20 - actualLine.length()); // Pad or trim to 20 characters
-    } else {
-        hvStatus = (currentSystemState == HIGH_VACUUM) ? "   SAFE FOR HVOLT   " : "  UNSAFE FOR HVOLT  "; // Pad to 20 characters
-    }
 
-    // Update the LCD content only if there's a change
-    if (lastDisplayedTopLine != fullTopLine) {
-        lcd.setCursor(0, 0);
-        lcd.print(fullTopLine);
-        lastDisplayedTopLine = fullTopLine;
-    }
-    if (lastDisplayedPressureLine != pressureLine) {
-        lcd.setCursor(0, 1);
-        lcd.print(pressureLine);
-        lastDisplayedPressureLine = pressureLine;
-    }
-    if (lastDisplayedErrorLine != expectedLine || lastDisplayedErrorLine != actualLine) {
+        // Display the error
+        String expectedLine = "Exp: " + errorQueue[displayErrorIndex].expected;
+        String actualLine = "Act: " + errorQueue[displayErrorIndex].actual;
+        if (expectedLine.length() > 20) expectedLine = expectedLine.substring(0, 20);
+        if (actualLine.length() > 20) actualLine = actualLine.substring(0, 20);
         lcd.setCursor(0, 2);
         lcd.print(expectedLine);
         lcd.setCursor(0, 3);
         lcd.print(actualLine);
-        lastDisplayedErrorLine = expectedLine;
-        lastDisplayedErrorLine = actualLine;
-    }
-    if (lastDisplayedHvStatus != hvStatus && currentDisplayIndex >= errorCount) {
+    } else {
+        // Show HV status based on the current system state
+        String hvStatus = (currentSystemState == HIGH_VACUUM) ? "   SAFE FOR HVOLT" : "  UNSAFE FOR HVOLT";
         lcd.setCursor(0, 3);
         lcd.print(hvStatus);
-        lastDisplayedHvStatus = hvStatus;
     }
 }
 
@@ -575,22 +561,34 @@ void configurePressureSensor() {
 }
 
 // TODO
-void sendDataToLabVIEW() {
+void sendDataToDashboard() {
     
+    String delimiter = ";";
+    String dataString = String(currentPressure.value, 3) + delimiter; // 3 decimal places of precision for pressure
+    dataString += currentPressure.rawStr + delimiter;
+
     // Get current system switch states
     SwitchStates state = readSystemSwitchStates();
-    String delimiter = ";";
 
-    String dataString = String(currentPressure.value, 3); // 3 decimal places of precision
-    dataString += delimiter + String(state.pumpsPowerOn);
-    dataString += delimiter + String(state.turboRotorOn);
-    dataString += delimiter + String(state.turboVentOpen);
-    dataString += delimiter + String(state.pressureGaugePowerOn);
-    dataString += delimiter + String(state.turboGateValveOpen);
-    dataString += delimiter + String(state.turboGateValveClosed);
-    dataString += delimiter + String(state.argonGateValveClosed);
-    dataString += delimiter + String(state.argonGateValveOpen);
+    // Compact switch state data into a single integer (bitwise representation)
+    int compactedSwitchStates = (state.pumpsPowerOn << 7) |
+                                (state.turboRotorOn << 6) |
+                                (state.turboVentOpen << 5) |
+                                (state.pressureGaugePowerOn << 4) |
+                                (state.turboGateValveOpen << 3) |
+                                (state.turboGateValveClosed << 2) |
+                                (state.argonGateValveClosed << 1) |
+                                (state.argonGateValveOpen);
     
+    dataString += String(compactedSwitchStates, BIN); // Send switch states as a binary string
+
+    // Append active errors to the data string
+    for (int i = 0; i < MAX_QUEUE_SIZE; i++) {
+        if (errorQueue[i].asserted) {
+            dataString += delimiter + "972b ERR:" + String(errorQueue[i].code) + ":" + errorQueue[i].actual;
+        }
+    }
+
     // Send the data string to LabVIEW through Serial1
     Serial1.println(dataString);
 }
