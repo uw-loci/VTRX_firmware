@@ -1,5 +1,6 @@
 #include <LiquidCrystal.h>  // Include LCD library
 #include "972b.h"  // Include the pressure transducer library
+#include <avr/wdt.h>
 
 /**
 *   Pin assignments
@@ -13,7 +14,6 @@
 #define ARGON_GATE_VALVE_CLOSED_PIN     32
 #define ARGON_GATE_VALVE_OPEN_PIN       31
 //const int rs = 12, en = 10, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // 20x4 LCD pin connections
-//const int rs = 22, en = 24, d4 = 26, d5 = 28, d6 = 30, d7 = 32; // 20x4 LCD pin connections
 const int rs = 22, en = 23, d4 = 24, d5 = 25, d6 = 26, d7 = 27; // 20x4 LCD pin connections
 /**
 *	System constants
@@ -123,6 +123,7 @@ LiquidCrystal lcd(rs, en, d4, d5, d6, d7);  // Initialize LCD display
 PressureTransducer sensor(PRESSURE_GAUGE_DEFAULT_ADDR, Serial2); // Initialize the Pressure sensor
 
 void setup() {
+
     
     // Initialize all switch status pins as inputs
     pinMode(PUMPS_POWER_ON_PIN, INPUT);
@@ -141,6 +142,7 @@ void setup() {
     Serial1.begin(9600); // Initialize the serial to LabVIEW
     Serial2.begin(9600); // Initialize the serial to Pressure gauge (RS485)
     lcd.begin(20, 4); // Set up the LCD's number of columns and rows
+    wdt_disable();
     
     startupMsg();
     //logPressureSensorInfo(); // Model and firmware version, hours of operation TODO:implement
@@ -193,7 +195,7 @@ void loop() {
 
     // Update Python dashboard with latest info
     bool hasErrors = errorCount > 0;
-    if (hasErrors || (currentTime - lastDashboardUpdate >=500)) {
+    if (hasErrors || (currentTime - lastDashboardUpdate >= 500)) {
         sendDataToDashboard();
     }
 }
@@ -560,7 +562,6 @@ void configurePressureSensor() {
     }
 }
 
-// TODO
 void sendDataToDashboard() {
     
     String delimiter = ";";
@@ -589,8 +590,24 @@ void sendDataToDashboard() {
         }
     }
 
-    // Send the data string to LabVIEW through Serial1
+    // Send the data string to python gui through Serial1
     Serial1.println(dataString);
+
+        // Now listen for a command from the Dashboard
+        if (Serial1.available() > 0) {
+            String command = Serial1.readStringUntil('\n');
+            Serial.println("Received: " + command); // Debug print
+            command.trim();
+            if (command == "RESET") {
+                Serial.println("RESET COMMAND RECEIVED");
+                initiateWatchdogReset();
+            }
+        }
+}
+
+void initiateWatchdogReset() {
+    wdt_enable(WDTO_15MS); // Enable the watchdog timer for a 15 millisecond timeout
+    while (true) {} // Enter an infinite loop to ensure the watchdog timer expires and resets the MCU
 }
 
 void startupMsg() {
