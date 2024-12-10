@@ -20,7 +20,7 @@ const int rs = 12, en = 10, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // 20x4 LCD pin conn
 **/
 #define DEBUG_MODE                      true        // Set this false to disable debug logging
 #define ERROR_CHECKING_ENABLED          1           // Set this 0 to disable error checking
-#define FIRMWARE_VERSION                "v.1.3"
+#define FIRMWARE_VERSION                "v.1.4"
 #define EXPECTED_AMBIENT_PRESSURE       1010.0      // Nominal ambient pressure [millibar]
 #define AMBIENT_PRESSURE_THRESHOLD      200.0       // 20% tolerance level for ambient [millibar]
 #define HIGH_VACUUM_THRESHOLD           1.00E-4
@@ -502,26 +502,50 @@ void configurePressureSensor() {
             if (!isErrorPresent(COLD_CATHODE_FAILURE) && !isErrorPresent(MICROPIRANI_FAILURE) && !isErrorPresent(PRESSURE_UNIT_ERROR)) {
                 // Sensor is okay, and units have been set successfully
                 
-                /*** Set Safety Relay Configuration  ***/
-                CommandResult relayConfig = sensor.setupSetpoint(
+                /*** Configure Relay 1  ***/
+                CommandResult relayConfig1 = sensor.setupSetpoint(
+                    1, // Relay Number
                     SAFETY_RELAY_THRESHOLD, 
                     SAFETY_RELAY_DIRECTION, 
                     SAFETY_RELAY_HYSTERESIS_VALUE, 
                     SAFETY_RELAY_ENABLE
                 );
 
-                if (!relayConfig.outcome) {
+                if (!relayConfig1.outcome) {
                     // Safety relay configuration failed
                     addErrorToQueue(
                         SAFETY_RELAY_ERROR, // ErrorCode 
                         ERROR, // ErrorLevel
                         "SafetyRelayOK", // "Expected" string
-                        relayConfig.resultStr); // "Actual" string
-                    Serial.println("PRESSURE_RELAY_ERROR: Failed to configure safety relay");
+                        relayConfig1.resultStr); // "Actual" string
+                    Serial.println("PRESSURE_RELAY_ERROR: Failed to configure safety relay 1");
                 } else {
                     // Safety relay configuration succeeded
                     removeErrorFromQueue(SAFETY_RELAY_ERROR);
-                    Serial.println("Pressure sensor safety relay configured successfully");
+                    Serial.println("Pressure sensor safety relay 1 configured successfully");
+                }
+
+                /*** Configure Relay 2  ***/
+                CommandResult relayConfig2 = sensor.setupSetpoint(
+                    2, // Relay Number
+                    SAFETY_RELAY_THRESHOLD, 
+                    SAFETY_RELAY_DIRECTION, 
+                    SAFETY_RELAY_HYSTERESIS_VALUE, 
+                    SAFETY_RELAY_ENABLE
+                );
+
+                if (!relayConfig2.outcome) {
+                    // Safety relay configuration failed
+                    addErrorToQueue(
+                        SAFETY_RELAY_ERROR, // ErrorCode 
+                        ERROR, // ErrorLevel
+                        "SafetyRelayOK", // "Expected" string
+                        relayConfig2.resultStr); // "Actual" string
+                    Serial.println("PRESSURE_RELAY_ERROR: Failed to configure safety relay 2");
+                } else {
+                    // Safety relay configuration succeeded
+                    removeErrorFromQueue(SAFETY_RELAY_ERROR);
+                    Serial.println("Pressure sensor safety relay 2 configured successfully");
                 }
 
                 /***   check if initial pressure is approximately 1 ATM   ***/
@@ -533,27 +557,50 @@ void configurePressureSensor() {
             removeErrorFromQueue(MICROPIRANI_FAILURE);
             removeErrorFromQueue(PRESSURE_DOSE_WARNING);
         
-            /*** Set Safety Relay Configuration  ***/
-            CommandResult relayConfig = sensor.setupSetpoint(
+            /*** Configure Relay 1  ***/
+            CommandResult relayConfig1 = sensor.setupSetpoint(
+                1, // Relay Number
                 SAFETY_RELAY_THRESHOLD, 
                 SAFETY_RELAY_DIRECTION, 
                 SAFETY_RELAY_HYSTERESIS_VALUE, 
                 SAFETY_RELAY_ENABLE
             );
 
-            if (!relayConfig.outcome) {
+            if (!relayConfig1.outcome) {
                 // Safety relay configuration failed
                 addErrorToQueue(
                     SAFETY_RELAY_ERROR, // ErrorCode 
                     ERROR, // ErrorLevel
                     "SafetyRelayOK", // "Expected" string
-                    relayConfig.resultStr // "Actual" string
+                    relayConfig1.resultStr // "Actual" string
                     );
-                Serial.println("PRESSURE_RELAY_ERROR: Failed to configure safety relay");
+                Serial.println("PRESSURE_RELAY_ERROR: Failed to configure safety relay 1");
             } else {
                 // Safety relay configuration succeeded
                 removeErrorFromQueue(SAFETY_RELAY_ERROR);
-                Serial.println("Pressure sensor safety relay configured successfully");
+                Serial.println("Pressure sensor safety relay 1 configured successfully");
+            }
+
+            /*** Configure Relay 2 ***/
+            CommandResult relayConfig2 = sensor.setupSetpoint(
+                2, // Relay Number
+                SAFETY_RELAY_THRESHOLD, 
+                SAFETY_RELAY_DIRECTION, 
+                SAFETY_RELAY_HYSTERESIS_VALUE, 
+                SAFETY_RELAY_ENABLE
+            );
+
+            if (!relayConfig2.outcome) {
+                addErrorToQueue(
+                    SAFETY_RELAY_ERROR, // ErrorCode 
+                    ERROR,              // ErrorLevel
+                    "SafetyRelay2OK",   // Expected
+                    relayConfig2.resultStr // Actual
+                );
+                Serial.println("PRESSURE_RELAY_ERROR: Failed to configure safety relay 2");
+            } else {
+                removeErrorFromQueue(SAFETY_RELAY_ERROR);
+                Serial.println("Pressure sensor safety relay 2 configured successfully");
             }
 
             // check if initial pressure is approximately 1 ATM
