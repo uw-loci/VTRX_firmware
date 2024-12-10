@@ -20,7 +20,7 @@ const int rs = 12, en = 10, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // 20x4 LCD pin conn
 **/
 #define DEBUG_MODE                      true        // Set this false to disable debug logging
 #define ERROR_CHECKING_ENABLED          1           // Set this 0 to disable error checking
-#define FIRMWARE_VERSION                "v.1.3"
+#define FIRMWARE_VERSION                "v.1.4"
 #define EXPECTED_AMBIENT_PRESSURE       1010.0      // Nominal ambient pressure [millibar]
 #define AMBIENT_PRESSURE_THRESHOLD      200.0       // 20% tolerance level for ambient [millibar]
 #define HIGH_VACUUM_THRESHOLD           1.00E-4
