@@ -28,9 +28,9 @@ const int rs = 12, en = 10, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // 20x4 LCD pin conn
 #define PRESSURE_READING_RETRY_LIMIT    3           // Attempts allowed before error. TODO: this should probably live in 972b driver
 #define AUTO_RESET_TIMEOUT              5000        // Time elapsed limit for non-persistent warnings   [milliseconds]
 #define MAX_QUEUE_SIZE                  10          // Errors that can simulataneously exist in queue
-#define SAFETY_RELAY_THRESHOLD          "2.00E+0"   // Pressure threshold [mbar]
+#define SAFETY_RELAY_THRESHOLD          "1.00E-4"   // Pressure threshold [mbar]
 #define SAFETY_RELAY_DIRECTION          "BELOW"     // Determines whether the relay is energized above or below the setpoint value
-#define SAFETY_RELAY_HYSTERESIS_VALUE   "2.10E+0"    // The pressure value at which the setpoint relay will be de-energized [mbar]
+#define SAFETY_RELAY_HYSTERESIS_VALUE   "1.10E-4"    // The pressure value at which the setpoint relay will be de-energized [mbar]
 #define SAFETY_RELAY_ENABLE             "ON"
 #define ULONG_MAX                       4294967295UL
 
@@ -403,7 +403,7 @@ void getCurrentPressure() {
             Serial.println(" mbar");
 
             // Determine the system state based on the global pressure value
-            if (currentPressure.value <= 1.00E-4) {
+            if (currentPressure.value <= HIGH_VACUUM_THRESHOLD) {
                 currentSystemState = HIGH_VACUUM;
             } else {
                 currentSystemState = STANDARD_PUMP_DOWN;
