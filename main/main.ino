@@ -612,7 +612,7 @@ void configurePressureSensor() {
 void sendDataToDashboard() {
     
     String delimiter = ";";
-    String dataString = String(currentPressure.value, 3) + delimiter; // 3 decimal places of precision for pressure
+    String dataString = String(currentPressure.value, 7) + delimiter; // 7 decimal places of precision for pressure
     dataString += currentPressure.rawStr + delimiter;
 
     // Get current system switch states
