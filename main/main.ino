@@ -9,10 +9,10 @@
 #define TURBO_ROTOR_ON_PIN              40
 #define TURBO_VENT_OPEN_PIN             39
 #define PRESSURE_GAUGE_RELAY1_PIN       38
-#define TURBO_GATE_VALVE_OPEN_PIN       34
-#define TURBO_GATE_VALVE_CLOSED_PIN     33
-#define ARGON_GATE_VALVE_CLOSED_PIN     32
-#define ARGON_GATE_VALVE_OPEN_PIN       31
+#define TURBO_GATE_VALVE_CLOSED_PIN     34
+#define TURBO_GATE_VALVE_OPEN_PIN       33
+#define ARGON_GATE_VALVE_OPEN_PIN       32
+#define ARGON_GATE_VALVE_CLOSED_PIN     31
 const int rs = 12, en = 10, d4 = 5, d5 = 4, d6 = 3, d7 = 2; // 20x4 LCD pin connections
 //const int rs = 22, en = 23, d4 = 24, d5 = 25, d6 = 26, d7 = 27; // 20x4 LCD pin connections
 /**
@@ -54,10 +54,10 @@ struct SwitchStates {
   int turboRotorOn;
   int turboVentOpen;
   int pressureGaugeRelay1Energized;
-  int turboGateValveOpen;
   int turboGateValveClosed;
-  int argonGateValveClosed;
+  int turboGateValveOpen;
   int argonGateValveOpen;
+  int argonGateValveClosed;
 };
 
 enum ErrorCode {
@@ -130,10 +130,10 @@ void setup() {
     pinMode(TURBO_ROTOR_ON_PIN, INPUT);
     pinMode(TURBO_VENT_OPEN_PIN, INPUT);
     pinMode(PRESSURE_GAUGE_RELAY1_PIN, INPUT);
-    pinMode(TURBO_GATE_VALVE_OPEN_PIN, INPUT);
     pinMode(TURBO_GATE_VALVE_CLOSED_PIN, INPUT);
-    pinMode(ARGON_GATE_VALVE_CLOSED_PIN, INPUT);
+    pinMode(TURBO_GATE_VALVE_OPEN_PIN, INPUT);
     pinMode(ARGON_GATE_VALVE_OPEN_PIN, INPUT); 
+    pinMode(ARGON_GATE_VALVE_CLOSED_PIN, INPUT);
     
     if (DEBUG_MODE) {
         //errorQueue.setPrinter(Serial); // TODO: implement
@@ -276,10 +276,10 @@ SwitchStates readSystemSwitchStates() {
     states.turboRotorOn = digitalRead(TURBO_ROTOR_ON_PIN);
     states.turboVentOpen = digitalRead(TURBO_VENT_OPEN_PIN);
     states.pressureGaugeRelay1Energized = digitalRead(PRESSURE_GAUGE_RELAY1_PIN);
-    states.turboGateValveOpen = digitalRead(TURBO_GATE_VALVE_OPEN_PIN);
     states.turboGateValveClosed = digitalRead(TURBO_GATE_VALVE_CLOSED_PIN);
-    states.argonGateValveClosed = digitalRead(ARGON_GATE_VALVE_CLOSED_PIN);
+    states.turboGateValveOpen = digitalRead(TURBO_GATE_VALVE_OPEN_PIN);
     states.argonGateValveOpen = digitalRead(ARGON_GATE_VALVE_OPEN_PIN);
+    states.argonGateValveClosed = digitalRead(ARGON_GATE_VALVE_CLOSED_PIN);
 
     return states;
 }
@@ -618,15 +618,18 @@ void sendDataToDashboard() {
     // Get current system switch states
     SwitchStates state = readSystemSwitchStates();
 
-    // Compact switch state data into a single integer (bitwise representation)
+    // Dashboard switch-state bit contract (MSB to LSB):
+    // 7: Pumps Power ON, 6: Turbo Rotor ON, 5: Turbo Vent OPEN,
+    // 4: 972B Relay 1 ON, 3: Turbo Gate CLOSED, 2: Turbo Gate OPEN,
+    // 1: Argon Gate OPEN, 0: Argon Gate CLOSED.
     int compactedSwitchStates = (state.pumpsPowerOn << 7) |
                                 (state.turboRotorOn << 6) |
                                 (state.turboVentOpen << 5) |
                                 (state.pressureGaugeRelay1Energized << 4) |
-                                (state.turboGateValveOpen << 3) |
-                                (state.turboGateValveClosed << 2) |
-                                (state.argonGateValveClosed << 1) |
-                                (state.argonGateValveOpen);
+                                (state.turboGateValveClosed << 3) |
+                                (state.turboGateValveOpen << 2) |
+                                (state.argonGateValveOpen << 1) |
+                                (state.argonGateValveClosed);
     
     dataString += String(compactedSwitchStates, BIN); // Send switch states as a binary string
 
