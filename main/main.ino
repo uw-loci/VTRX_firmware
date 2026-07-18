@@ -8,7 +8,7 @@
 #define PUMPS_POWER_ON_PIN              41
 #define TURBO_ROTOR_ON_PIN              40
 #define TURBO_VENT_OPEN_PIN             39
-#define PRESSURE_GAUGE_POWER_ON_PIN     38
+#define PRESSURE_GAUGE_RELAY1_PIN       38
 #define TURBO_GATE_VALVE_OPEN_PIN       34
 #define TURBO_GATE_VALVE_CLOSED_PIN     33
 #define ARGON_GATE_VALVE_CLOSED_PIN     32
@@ -53,7 +53,7 @@ struct SwitchStates {
   int pumpsPowerOn;
   int turboRotorOn;
   int turboVentOpen;
-  int pressureGaugePowerOn;
+  int pressureGaugeRelay1Energized;
   int turboGateValveOpen;
   int turboGateValveClosed;
   int argonGateValveClosed;
@@ -129,7 +129,7 @@ void setup() {
     pinMode(PUMPS_POWER_ON_PIN, INPUT);
     pinMode(TURBO_ROTOR_ON_PIN, INPUT);
     pinMode(TURBO_VENT_OPEN_PIN, INPUT);
-    pinMode(PRESSURE_GAUGE_POWER_ON_PIN, INPUT);
+    pinMode(PRESSURE_GAUGE_RELAY1_PIN, INPUT);
     pinMode(TURBO_GATE_VALVE_OPEN_PIN, INPUT);
     pinMode(TURBO_GATE_VALVE_CLOSED_PIN, INPUT);
     pinMode(ARGON_GATE_VALVE_CLOSED_PIN, INPUT);
@@ -275,7 +275,7 @@ SwitchStates readSystemSwitchStates() {
     states.pumpsPowerOn = digitalRead(PUMPS_POWER_ON_PIN);
     states.turboRotorOn = digitalRead(TURBO_ROTOR_ON_PIN);
     states.turboVentOpen = digitalRead(TURBO_VENT_OPEN_PIN);
-    states.pressureGaugePowerOn = digitalRead(PRESSURE_GAUGE_POWER_ON_PIN);
+    states.pressureGaugeRelay1Energized = digitalRead(PRESSURE_GAUGE_RELAY1_PIN);
     states.turboGateValveOpen = digitalRead(TURBO_GATE_VALVE_OPEN_PIN);
     states.turboGateValveClosed = digitalRead(TURBO_GATE_VALVE_CLOSED_PIN);
     states.argonGateValveClosed = digitalRead(ARGON_GATE_VALVE_CLOSED_PIN);
@@ -622,7 +622,7 @@ void sendDataToDashboard() {
     int compactedSwitchStates = (state.pumpsPowerOn << 7) |
                                 (state.turboRotorOn << 6) |
                                 (state.turboVentOpen << 5) |
-                                (state.pressureGaugePowerOn << 4) |
+                                (state.pressureGaugeRelay1Energized << 4) |
                                 (state.turboGateValveOpen << 3) |
                                 (state.turboGateValveClosed << 2) |
                                 (state.argonGateValveClosed << 1) |
